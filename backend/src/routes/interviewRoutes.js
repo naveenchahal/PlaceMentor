@@ -6,7 +6,7 @@ import {
   getHistory,
   getSessionDetail
 } from "../controllers/interviewController.js";
-import authMiddleware from "../middleware/authmiddleware.js";
+import authMiddleware from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 

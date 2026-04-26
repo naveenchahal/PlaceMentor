@@ -6,7 +6,7 @@ import {
   getDayQuestions,
   sendReminders
 } from "../controllers/streakController.js";
-import authMiddleware from "../middleware/authmiddleware.js";
+import authMiddleware from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 

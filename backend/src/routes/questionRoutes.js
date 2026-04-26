@@ -1,7 +1,7 @@
 import express from "express";
 
 import { generateQuestions, evaluateAnswers } from "../controllers/questionController.js";
-import authMiddleware from "../middleware/authmiddleware.js";
+import authMiddleware from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
