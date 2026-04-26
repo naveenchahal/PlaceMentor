@@ -1,0 +1,142 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String?
+
+  role      Role     @default(USER)
+
+  otp       String?
+  otpExpire DateTime?
+  otpSentAt DateTime?
+
+  provider   String  @default("local")
+  isVerified Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  interviewSessions      InterviewSession[]
+  userStreaks             UserStreak[]
+  gifts                  Gift[]
+  voiceInterviewSessions VoiceInterviewSession[]
+}
+
+model InterviewSession {
+  id           String    @id @default(cuid())
+  userId       Int
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic        String
+  duration     Int
+  numQuestions Int
+  questions    String
+  answers      String
+  analysis     String?
+  status       String    @default("active")
+  startedAt    DateTime  @default(now())
+  endsAt       DateTime
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+}
+
+model CompanyQuestion {
+  id          Int      @id @default(autoincrement())
+  company     String
+  companyName String
+  question    String
+  answer      String
+  topic       String
+  difficulty  String
+  round       String
+  type        String   @default("technical")
+  generatedBy Int
+  createdAt   DateTime @default(now())
+
+  @@index([company, topic, difficulty])
+  @@map("company_questions")
+}
+
+model DailyQuestion {
+  id        Int      @id @default(autoincrement())
+  date      String
+  questions String
+  createdAt DateTime @default(now())
+
+  userStreaks UserStreak[]
+
+  @@unique([date])
+}
+
+model UserStreak {
+  id                Int      @id @default(autoincrement())
+  userId            Int
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  currentStreak     Int      @default(0)
+  longestStreak     Int      @default(0)
+  lastCompletedDate String?
+
+  totalCompleted    Int      @default(0)
+  weeklyGiftClaimed  Boolean @default(false)
+  monthlyGiftClaimed Boolean @default(false)
+  yearlyGiftClaimed  Boolean @default(false)
+
+  dailyQuestionId Int?
+  dailyQuestion   DailyQuestion? @relation(fields: [dailyQuestionId], references: [id])
+
+  answers     String?
+  isCompleted Boolean   @default(false)
+  completedAt DateTime?
+  streakDate  String
+
+  reminderSent Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, streakDate])
+}
+
+model Gift {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  milestone Int
+  message   String
+  claimedAt DateTime @default(now())
+}
+
+model VoiceInterviewSession {
+  id           String   @id @default(cuid())
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  topic        String
+  duration     Int
+  numQuestions Int
+
+  questions String
+  answers   String
+  analysis  String?
+
+  status    String   @default("active")
+
+  startedAt   DateTime  @default(now())
+  endsAt      DateTime?
+  completedAt DateTime?
+
+  @@index([userId])
+  @@map("voice_interview_sessions")
+}
