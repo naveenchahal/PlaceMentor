@@ -48,7 +48,7 @@ export default function DSASolver() {
 
     try {
       const token = localStorage.getItem('token')
-      const res = await fetch('/api/dsa/solve', {
+      const res = await fetch('https://placementor-uh2b.onrender.com/api/dsa/solve', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
