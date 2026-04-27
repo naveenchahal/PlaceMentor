@@ -8,7 +8,7 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 // Drop-in replacement for callOllama — same function signature
 export const callOllama = async (prompt, timeout = 120000) => {
   const completion = await groq.chat.completions.create({
-  model: "llama-3.3-70b-versatile",
+    model: "llama-3.3-70b-versatile",
     messages: [{ role: "user", content: prompt }],
     max_tokens: 4000,
   });
@@ -30,6 +30,7 @@ export const streamOllama = async (prompt, res) => {
       res.write(`data: ${JSON.stringify({ text })}\n\n`);
     }
   }
+
   res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
   res.end();
 };
