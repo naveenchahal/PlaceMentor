@@ -1,10 +1,7 @@
-import axios from "axios";
+// src/controllers/voiceInterviewController.js
 import prisma from "../config/prisma.js";
+import { callOllama } from "../config/groq.js";
 
-const OLLAMA_URL = "http://localhost:11434/api/generate";
-const OLLAMA_MODEL = "llama3";
-
-// ─── Same topics as interviewController ───────────────────────────────────────
 const TOPICS = {
   dsa:          "Data Structures & Algorithms (arrays, linked lists, trees, graphs, sorting, dynamic programming)",
   backend:      "Backend Development (REST APIs, databases, authentication, caching, system design)",
@@ -22,8 +19,6 @@ const TOPICS = {
 
 const TIME_LIMITS = { "30": 30, "60": 60, "90": 90 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 const fixJSON = (str) => {
   str = str.replace(/:(\s*)(\d+)"/g, ':$1$2');
   str = str.replace(/,(\s*[}\]])/g, '$1');
@@ -38,19 +33,8 @@ const parseJSON = (rawText) => {
   catch { return JSON.parse(fixJSON(jsonStr)); }
 };
 
-const callOllama = async (prompt, timeout = 120000) => {
-  const res = await axios.post(OLLAMA_URL, {
-    model: OLLAMA_MODEL,
-    prompt,
-    stream: false
-  }, { timeout });
-  return res.data.response.trim();
-};
-
-// Count filler words in transcript
 const analyzeFillerWords = (text) => {
-  const fillers = ['um', 'uh', 'like', 'you know', 'basically', 'actually', 'literally',
-    'so', 'right', 'okay', 'hmm', 'err', 'ah', 'well'];
+  const fillers = ['um', 'uh', 'like', 'you know', 'basically', 'actually', 'literally', 'so', 'right', 'okay', 'hmm', 'err', 'ah', 'well'];
   const lower = text.toLowerCase();
   const found = {};
   let total = 0;
@@ -62,7 +46,6 @@ const analyzeFillerWords = (text) => {
   return { found, total };
 };
 
-// Estimate words per minute (pace)
 const estimatePace = (text, timeTakenSeconds) => {
   if (!timeTakenSeconds || timeTakenSeconds < 5) return null;
   const words = text.trim().split(/\s+/).length;
@@ -79,8 +62,6 @@ const sanitizeQuestion = (q) => {
 };
 
 // ─── START VOICE INTERVIEW ────────────────────────────────────────────────────
-// POST /api/voice-interview/start
-// Body: { topic, duration, numQuestions }
 export const startVoiceInterview = async (req, res) => {
   try {
     const { topic, duration, numQuestions } = req.body;
@@ -99,7 +80,6 @@ export const startVoiceInterview = async (req, res) => {
     const timeLimitMin = TIME_LIMITS[String(duration)] || 60;
     const topicDescription = TOPICS[topic];
 
-    // Voice interviews: only text questions (no MCQ, no code — hard to answer verbally)
     const prompt = `You are an expert interviewer conducting a ${timeLimitMin}-minute VOICE interview on: ${topicDescription}.
 
 Generate exactly ${num} interview questions suitable for a spoken voice interview.
@@ -140,22 +120,13 @@ Rules:
       return res.status(500).json({ message: "Failed to generate questions: " + err.message });
     }
 
-    // ✅ FIX 4: Ensure all question IDs are integers (in case LLM returns strings)
-    questions = questions.map((q, index) => ({
-      ...q,
-      id: Number(q.id) || (index + 1)
-    }));
+    questions = questions.map((q, index) => ({ ...q, id: Number(q.id) || (index + 1) }));
 
     const session = await prisma.voiceInterviewSession.create({
       data: {
-        userId,
-        topic,
-        duration: timeLimitMin,
-        numQuestions: num,
-        questions: JSON.stringify(questions),
-        answers: JSON.stringify([]),
-        status: "active",
-        startedAt: new Date(),
+        userId, topic, duration: timeLimitMin, numQuestions: num,
+        questions: JSON.stringify(questions), answers: JSON.stringify([]),
+        status: "active", startedAt: new Date(),
         endsAt: new Date(Date.now() + timeLimitMin * 60 * 1000)
       }
     });
@@ -163,30 +134,18 @@ Rules:
     const firstQuestion = sanitizeQuestion(questions[0]);
 
     return res.status(201).json({
-      success: true,
-      sessionId: session.id,
-      topic,
-      duration: timeLimitMin,
-      totalQuestions: questions.length,
-      endsAt: session.endsAt,
-      currentQuestion: {
-        ...firstQuestion,
-        questionNumber: 1,
-        totalQuestions: questions.length
-      }
+      success: true, sessionId: session.id, topic, duration: timeLimitMin,
+      totalQuestions: questions.length, endsAt: session.endsAt,
+      currentQuestion: { ...firstQuestion, questionNumber: 1, totalQuestions: questions.length }
     });
 
   } catch (error) {
-    if (error.code === "ECONNREFUSED")
-      return res.status(503).json({ message: "Ollama is not running. Start with: ollama serve" });
     console.error("START VOICE INTERVIEW ERROR:", error);
     return res.status(500).json({ message: "Server error" });
   }
 };
 
 // ─── SUBMIT VOICE ANSWER & GET NEXT ──────────────────────────────────────────
-// POST /api/voice-interview/next
-// Body: { sessionId, questionId, transcript, timeTaken }
 export const nextVoiceQuestion = async (req, res) => {
   try {
     const { sessionId, questionId, transcript, timeTaken } = req.body;
@@ -195,10 +154,7 @@ export const nextVoiceQuestion = async (req, res) => {
     if (!sessionId || questionId === undefined || !transcript)
       return res.status(400).json({ message: "sessionId, questionId and transcript are required" });
 
-    const session = await prisma.voiceInterviewSession.findFirst({
-      where: { id: sessionId, userId }
-    });
-
+    const session = await prisma.voiceInterviewSession.findFirst({ where: { id: sessionId, userId } });
     if (!session) return res.status(404).json({ message: "Session not found" });
     if (session.status !== "active") return res.status(400).json({ message: "Session already completed" });
 
@@ -210,63 +166,39 @@ export const nextVoiceQuestion = async (req, res) => {
     const questions = JSON.parse(session.questions);
     const answers   = JSON.parse(session.answers);
 
-    // ✅ FIX 5: THE MAIN BUG — questionId ko Number mein convert karo
-    // Frontend se string aa sakta tha, DB mein integer hai → .find() fail hota tha
-    // → currentQuestion = undefined → backend 400 error → frontend crash → BLACK SCREEN
     const numericQuestionId = Number(questionId);
     const currentQuestion = questions.find(q => Number(q.id) === numericQuestionId);
     if (!currentQuestion) return res.status(400).json({ message: "Invalid questionId" });
 
-    // Analyze voice-specific metrics from transcript
     const fillerAnalysis = analyzeFillerWords(transcript);
     const paceAnalysis   = estimatePace(transcript, timeTaken);
     const wordCount      = transcript.trim().split(/\s+/).length;
 
     answers.push({
-      questionId: numericQuestionId,
-      question:        currentQuestion.question,
-      topic:           currentQuestion.topic,
-      difficulty:      currentQuestion.difficulty,
-      transcript,
-      correctAnswer:   currentQuestion.correctAnswer,
-      explanation:     currentQuestion.explanation,
-      timeTaken:       timeTaken || 0,
-      wordCount,
-      fillerWords:     fillerAnalysis,
-      pace:            paceAnalysis,
+      questionId: numericQuestionId, question: currentQuestion.question,
+      topic: currentQuestion.topic, difficulty: currentQuestion.difficulty,
+      transcript, correctAnswer: currentQuestion.correctAnswer,
+      explanation: currentQuestion.explanation, timeTaken: timeTaken || 0,
+      wordCount, fillerWords: fillerAnalysis, pace: paceAnalysis,
     });
 
-    const currentIndex  = questions.findIndex(q => Number(q.id) === numericQuestionId);
-    const nextIndex     = currentIndex + 1;
+    const currentIndex   = questions.findIndex(q => Number(q.id) === numericQuestionId);
+    const nextIndex      = currentIndex + 1;
     const isLastQuestion = nextIndex >= questions.length;
 
     await prisma.voiceInterviewSession.update({
       where: { id: sessionId },
-      data: {
-        answers: JSON.stringify(answers),
-        status: isLastQuestion ? "completed" : "active"
-      }
+      data: { answers: JSON.stringify(answers), status: isLastQuestion ? "completed" : "active" }
     });
 
     if (isLastQuestion) {
-      return res.json({
-        success: true,
-        message: "Voice interview completed!",
-        sessionId,
-        isCompleted: true,
-        totalAnswered: answers.length
-      });
+      return res.json({ success: true, message: "Voice interview completed!", sessionId, isCompleted: true, totalAnswered: answers.length });
     }
 
     const nextQ = sanitizeQuestion(questions[nextIndex]);
     return res.json({
-      success: true,
-      isCompleted: false,
-      currentQuestion: {
-        ...nextQ,
-        questionNumber: nextIndex + 1,
-        totalQuestions: questions.length
-      },
+      success: true, isCompleted: false,
+      currentQuestion: { ...nextQ, questionNumber: nextIndex + 1, totalQuestions: questions.length },
       timeRemaining: Math.max(0, Math.floor((new Date(session.endsAt) - new Date()) / 1000)),
       answeredSoFar: answers.length
     });
@@ -278,8 +210,6 @@ export const nextVoiceQuestion = async (req, res) => {
 };
 
 // ─── FINISH & DEEP ANALYSIS ───────────────────────────────────────────────────
-// POST /api/voice-interview/finish
-// Body: { sessionId }
 export const finishVoiceInterview = async (req, res) => {
   try {
     const { sessionId } = req.body;
@@ -287,56 +217,44 @@ export const finishVoiceInterview = async (req, res) => {
 
     if (!sessionId) return res.status(400).json({ message: "sessionId is required" });
 
-    const session = await prisma.voiceInterviewSession.findFirst({
-      where: { id: sessionId, userId }
-    });
-
+    const session = await prisma.voiceInterviewSession.findFirst({ where: { id: sessionId, userId } });
     if (!session) return res.status(404).json({ message: "Session not found" });
 
     const answers = JSON.parse(session.answers);
     if (answers.length === 0) return res.status(400).json({ message: "No answers to analyze" });
 
-    await prisma.voiceInterviewSession.update({
-      where: { id: sessionId },
-      data: { status: "completed", completedAt: new Date() }
-    });
+    await prisma.voiceInterviewSession.update({ where: { id: sessionId }, data: { status: "completed", completedAt: new Date() } });
 
-    // Aggregate voice stats across all answers
     const totalFillers = answers.reduce((sum, a) => sum + (a.fillerWords?.total || 0), 0);
-    const avgWPM = answers
-      .filter(a => a.pace?.wpm)
-      .reduce((sum, a, _, arr) => sum + a.pace.wpm / arr.length, 0);
+    const avgWPM = answers.filter(a => a.pace?.wpm).reduce((sum, a, _, arr) => sum + a.pace.wpm / arr.length, 0);
     const totalWords = answers.reduce((sum, a) => sum + (a.wordCount || 0), 0);
 
-    // Build transcript summary for AI
     const transcriptSummary = answers.map((a, i) =>
       `--- Question ${i + 1} [${a.topic}] [${a.difficulty}] ---
 Question: ${a.question}
-Spoken Answer (transcript): ${a.transcript}
+Spoken Answer: ${a.transcript}
 Expected Key Points: ${a.correctAnswer}
-Time Taken: ${a.timeTaken}s | Words Spoken: ${a.wordCount} | Filler Words: ${a.fillerWords?.total || 0} (${JSON.stringify(a.fillerWords?.found || {})}) | Pace: ${a.pace?.wpm || 'N/A'} WPM`
+Time Taken: ${a.timeTaken}s | Words: ${a.wordCount} | Fillers: ${a.fillerWords?.total || 0} | Pace: ${a.pace?.wpm || 'N/A'} WPM`
     ).join("\n\n");
 
-    const analysisPrompt = `You are an expert communication coach and technical interviewer analyzing a VOICE mock interview.
+    const analysisPrompt = `You are an expert communication coach analyzing a VOICE mock interview.
 
 Topic: ${TOPICS[session.topic]}
 Duration: ${session.duration} minutes
 Total Questions: ${answers.length}
-Overall Stats: ${totalWords} total words spoken, avg pace ~${Math.round(avgWPM || 0)} WPM, ${totalFillers} filler words used
+Stats: ${totalWords} words spoken, avg pace ~${Math.round(avgWPM || 0)} WPM, ${totalFillers} filler words
 
 Full transcript:
 ${transcriptSummary}
 
-Analyze both TECHNICAL CONTENT and COMMUNICATION SKILLS. Return ONLY raw JSON. No markdown.
+Return ONLY raw JSON. No markdown.
 
 {
   "overallScore": 72,
   "grade": "B",
   "totalQuestions": ${answers.length},
-
   "communicationScore": 68,
   "technicalScore": 75,
-
   "voiceMetrics": {
     "totalWordCount": ${totalWords},
     "avgWordsPerMinute": ${Math.round(avgWPM || 0)},
@@ -345,13 +263,12 @@ Analyze both TECHNICAL CONTENT and COMMUNICATION SKILLS. Return ONLY raw JSON. N
     "fillerWordImpact": "moderate",
     "topFillerWords": ["um", "like"],
     "clarityScore": 70,
-    "clarityFeedback": "Answers were mostly clear but some sentences trailed off",
+    "clarityFeedback": "Answers were mostly clear",
     "confidenceScore": 65,
-    "confidenceFeedback": "Hesitations detected on harder questions, speak more assertively",
+    "confidenceFeedback": "Speak more assertively",
     "structureScore": 75,
-    "structureFeedback": "Good use of examples but answers lacked clear conclusions"
+    "structureFeedback": "Good use of examples"
   },
-
   "questionAnalysis": [
     {
       "questionId": 1,
@@ -359,74 +276,57 @@ Analyze both TECHNICAL CONTENT and COMMUNICATION SKILLS. Return ONLY raw JSON. N
       "question": "exact question text",
       "topic": "topic",
       "difficulty": "easy",
-
       "accuracyPercent": 80,
       "result": "partial",
-
-      "transcriptSummary": "what the candidate said — paraphrased concisely",
+      "transcriptSummary": "what the candidate said",
       "whatWasRight": "specific things covered correctly",
       "whatWasMissing": "key concepts not mentioned",
       "whatWasWrong": "any incorrect statements",
-
-      "modelAnswer": "Complete ideal spoken answer — written as if said aloud, conversational tone. Include all key points a top candidate would mention.",
-
+      "modelAnswer": "Complete ideal spoken answer in conversational tone",
       "voiceFeedback": {
         "fillerCount": 3,
         "mainFillers": ["um", "uh"],
         "pace": "good",
         "wpm": 140,
         "lengthVerdict": "too short",
-        "lengthNote": "Answer was only 45 words — should be 100-150 words for this question",
-        "tip": "Pause instead of saying 'um'. Use the STAR method for this type of question."
+        "lengthNote": "Answer was only 45 words",
+        "tip": "Pause instead of saying um. Use the STAR method."
       },
-
       "conceptsToStudy": ["specific concept"],
       "timeTaken": 45
     }
   ],
-
   "communicationBreakdown": {
-    "clarity":      { "score": 70, "feedback": "Generally clear but some technical terms were used incorrectly" },
-    "confidence":   { "score": 60, "feedback": "Many filler words suggest nervousness — practice more mock interviews" },
-    "structure":    { "score": 75, "feedback": "Good intro but answers need stronger conclusions" },
-    "vocabulary":   { "score": 80, "feedback": "Good use of technical terms overall" },
-    "conciseness":  { "score": 65, "feedback": "Some answers were too brief, others too rambling" },
-    "engagement":   { "score": 70, "feedback": "Tone was mostly professional" }
+    "clarity":     { "score": 70, "feedback": "Generally clear" },
+    "confidence":  { "score": 60, "feedback": "Many filler words" },
+    "structure":   { "score": 75, "feedback": "Good intro but weak conclusions" },
+    "vocabulary":  { "score": 80, "feedback": "Good use of technical terms" },
+    "conciseness": { "score": 65, "feedback": "Some answers too brief" },
+    "engagement":  { "score": 70, "feedback": "Mostly professional tone" }
   },
-
   "topicBreakdown": [
-    {
-      "topic": "Arrays",
-      "score": 80,
-      "status": "strong",
-      "summary": "Good conceptual understanding"
-    }
+    { "topic": "Arrays", "score": 80, "status": "strong", "summary": "Good conceptual understanding" }
   ],
-
   "strongAreas": ["Technical vocabulary", "Problem approach"],
-  "improvementAreas": ["Reduce filler words", "Add more structure", "Give concrete examples"],
-
+  "improvementAreas": ["Reduce filler words", "Add more structure"],
   "top3CommunicationTips": [
-    "Replace 'um/uh' with a 2-second pause — silence sounds more confident than fillers",
-    "Use the STAR method (Situation, Task, Action, Result) for behavioral questions",
-    "End every answer with a clear 1-sentence summary of your main point"
+    "Replace um/uh with a 2-second pause",
+    "Use the STAR method for behavioral questions",
+    "End every answer with a clear 1-sentence summary"
   ],
-
   "top3TechnicalTips": [
     "Study specific topic",
-    "Practice explaining X out loud",
-    "Review concept Y"
+    "Practice explaining concepts out loud",
+    "Review weak areas"
   ],
-
   "studyPlan": {
     "week1": ["Focus area 1", "Practice tip 1"],
     "week2": ["Focus area 2", "Practice tip 2"],
     "week3": ["Focus area 3", "Practice tip 3"]
   },
-
   "estimatedLevel": "junior",
-  "interviewReadiness": "Almost ready — work on communication confidence and DP topics",
-  "overallFeedback": "2-3 sentence honest summary of this candidate's voice interview performance"
+  "interviewReadiness": "Almost ready — work on communication confidence",
+  "overallFeedback": "2-3 sentence honest summary of performance"
 }
 
 RULES:
@@ -434,60 +334,30 @@ RULES:
 - fillerWordImpact: "none", "minor", "moderate", or "severe"
 - lengthVerdict: "too short" (<60 words), "good" (60-200), "too long" (>200)
 - result: "correct", "partial", or "wrong"
-- estimatedLevel: "intern", "junior", "mid", or "senior"
-- modelAnswer should be CONVERSATIONAL — written as if spoken aloud
-- Be specific about which filler words were used most
-- voiceFeedback.tip must be ACTIONABLE and SPECIFIC to that question`;
+- estimatedLevel: "intern", "junior", "mid", or "senior"`;
 
     let analysis;
     try {
       const rawText = await callOllama(analysisPrompt, 300000);
       analysis = parseJSON(rawText);
     } catch (err) {
-      // Fallback
       analysis = {
-        overallScore: 50,
-        grade: "C",
-        totalQuestions: answers.length,
-        communicationScore: 50,
-        technicalScore: 50,
-        voiceMetrics: {
-          totalWordCount: totalWords,
-          avgWordsPerMinute: Math.round(avgWPM || 0),
-          totalFillerWords: totalFillers,
-        },
+        overallScore: 50, grade: "C", totalQuestions: answers.length,
+        communicationScore: 50, technicalScore: 50,
+        voiceMetrics: { totalWordCount: totalWords, avgWordsPerMinute: Math.round(avgWPM || 0), totalFillerWords: totalFillers },
         questionAnalysis: answers.map((a, i) => ({
-          questionId: a.questionId,
-          questionNumber: i + 1,
-          question: a.question,
-          topic: a.topic,
-          difficulty: a.difficulty,
-          result: "partial",
-          accuracyPercent: 50,
-          transcriptSummary: a.transcript,
-          modelAnswer: a.correctAnswer,
-          voiceFeedback: {
-            fillerCount: a.fillerWords?.total || 0,
-            pace: a.pace?.verdict || "good",
-            wpm: a.pace?.wpm || 0,
-          }
+          questionId: a.questionId, questionNumber: i + 1, question: a.question,
+          topic: a.topic, difficulty: a.difficulty, result: "partial", accuracyPercent: 50,
+          transcriptSummary: a.transcript, modelAnswer: a.correctAnswer,
+          voiceFeedback: { fillerCount: a.fillerWords?.total || 0, pace: a.pace?.verdict || "good", wpm: a.pace?.wpm || 0 }
         })),
         error: err.message
       };
     }
 
-    await prisma.voiceInterviewSession.update({
-      where: { id: sessionId },
-      data: { analysis: JSON.stringify(analysis) }
-    });
+    await prisma.voiceInterviewSession.update({ where: { id: sessionId }, data: { analysis: JSON.stringify(analysis) } });
 
-    return res.json({
-      success: true,
-      sessionId,
-      topic: session.topic,
-      duration: session.duration,
-      analysis
-    });
+    return res.json({ success: true, sessionId, topic: session.topic, duration: session.duration, analysis });
 
   } catch (error) {
     console.error("FINISH VOICE INTERVIEW ERROR:", error);
@@ -496,26 +366,18 @@ RULES:
 };
 
 // ─── GET VOICE INTERVIEW HISTORY ─────────────────────────────────────────────
-// GET /api/voice-interview/history
 export const getVoiceHistory = async (req, res) => {
   try {
     const userId = req.user.id;
     const sessions = await prisma.voiceInterviewSession.findMany({
       where: { userId },
-      select: {
-        id: true, topic: true, duration: true, numQuestions: true,
-        status: true, startedAt: true, completedAt: true, analysis: true
-      },
-      orderBy: { startedAt: "desc" },
-      take: 20
+      select: { id: true, topic: true, duration: true, numQuestions: true, status: true, startedAt: true, completedAt: true, analysis: true },
+      orderBy: { startedAt: "desc" }, take: 20
     });
 
     return res.json({
       success: true,
-      history: sessions.map(s => ({
-        ...s,
-        analysis: s.analysis ? JSON.parse(s.analysis) : null
-      }))
+      history: sessions.map(s => ({ ...s, analysis: s.analysis ? JSON.parse(s.analysis) : null }))
     });
   } catch (error) {
     console.error("VOICE HISTORY ERROR:", error);

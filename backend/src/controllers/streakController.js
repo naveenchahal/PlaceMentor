@@ -1,11 +1,7 @@
-import axios from "axios";
+// src/controllers/streakController.js
 import prisma from "../config/prisma.js";
 import sendOTP from "../services/emailService.js";
-
-const OLLAMA_URL = "http://localhost:11434/api/generate";
-const OLLAMA_MODEL = "llama3";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+import { callOllama } from "../config/groq.js";
 
 const fixJSON = (str) => {
   str = str.replace(/:(\s*)(\d+)"/g, ':$1$2');
@@ -40,19 +36,12 @@ const GIFT_MESSAGES = {
   }
 };
 
-// ─── GENERATE DAILY QUESTIONS ─────────────────────────────────────────────────
 const generateDailyQuestions = async (date) => {
   const prompt = `You are an expert interviewer. Generate exactly 5 interview questions for daily practice.
 One question per topic in this exact order: DSA, System Design, HR, OOPs, Aptitude.
 Date: ${date}
 
-Return ONLY a raw JSON array. No markdown, no explanation, no placeholder text.
-
-IMPORTANT: The "answer" field must contain a REAL, DETAILED answer — not placeholder text like "Expected answer with key points".
-
-Example of GOOD answer: "Abstract classes can have method implementations while interfaces cannot (before Java 8). Use abstract class when classes share common behavior, use interface for unrelated classes that share a contract."
-
-Example of BAD answer: "Expected answer with key points" ← NEVER DO THIS
+Return ONLY a raw JSON array. No markdown, no explanation.
 
 [
   {
@@ -77,7 +66,7 @@ Example of BAD answer: "Expected answer with key points" ← NEVER DO THIS
     "difficulty": "easy",
     "type": "text",
     "question": "Tell me about yourself.",
-    "answer": "Structure: Brief intro, education, key skills/projects, why this role. Keep it under 2 minutes. Focus on relevant experience and end with why you are excited about this opportunity."
+    "answer": "Structure: Brief intro, education, key skills/projects, why this role. Keep it under 2 minutes. Focus on relevant experience."
   },
   {
     "id": 4,
@@ -99,26 +88,11 @@ Example of BAD answer: "Expected answer with key points" ← NEVER DO THIS
     "correctAnswer": "B) 2.5 hours",
     "answer": "Speed = 60 km/h. Time = Distance/Speed = 150/60 = 2.5 hours."
   }
-]
+]`;
 
-Rules:
-- id must be plain integer 1-5
-- topics must be in order: DSA, System Design, HR, OOPs, Aptitude
-- difficulty: easy/medium/hard
-- type: text or mcq
-- answer MUST be a real detailed answer, never placeholder text
-- For mcq: include options array and correctAnswer matching exactly one option`;
-
-  const ollamaRes = await axios.post(OLLAMA_URL, {
-    model: OLLAMA_MODEL,
-    prompt,
-    stream: false
-  }, { timeout: 180000 });
-
-  return parseJSON(ollamaRes.data.response.trim());
+  const rawText = await callOllama(prompt, 180000);
+  return parseJSON(rawText);
 };
-
-// ─── GET TODAY'S QUESTIONS ────────────────────────────────────────────────────
 
 export const getTodayQuestions = async (req, res) => {
   try {
@@ -129,11 +103,8 @@ export const getTodayQuestions = async (req, res) => {
 
     if (!dailyQ) {
       let questions;
-      try {
-        questions = await generateDailyQuestions(today);
-      } catch (err) {
-        return res.status(503).json({ message: "Ollama is not running. Start with: ollama serve" });
-      }
+      try { questions = await generateDailyQuestions(today); }
+      catch (err) { return res.status(503).json({ message: "AI service error: " + err.message }); }
 
       dailyQ = await prisma.dailyQuestion.upsert({
         where:  { date: today },
@@ -150,21 +121,14 @@ export const getTodayQuestions = async (req, res) => {
       userStreak = await prisma.userStreak.upsert({
         where:  { userId_streakDate: { userId, streakDate: today } },
         update: {},
-        create: {
-          userId,
-          streakDate: today,
-          dailyQuestionId: dailyQ.id,
-          isCompleted: false
-        }
+        create: { userId, streakDate: today, dailyQuestionId: dailyQ.id, isCompleted: false }
       });
     }
 
     const streakInfo = await getStreakInfo(userId);
 
     return res.json({
-      success: true,
-      date: today,
-      isCompleted: userStreak.isCompleted,
+      success: true, date: today, isCompleted: userStreak.isCompleted,
       questions: JSON.parse(dailyQ.questions).map(q => {
         if (!userStreak.isCompleted) {
           const { answer, correctAnswer, ...safeQ } = q;
@@ -182,17 +146,14 @@ export const getTodayQuestions = async (req, res) => {
   }
 };
 
-// ─── SUBMIT DAILY ANSWERS ─────────────────────────────────────────────────────
-
 export const submitDailyAnswers = async (req, res) => {
   try {
     const userId  = req.user.id;
     const today   = getTodayDate();
     const { answers } = req.body;
 
-    if (!answers || !Array.isArray(answers) || answers.length === 0) {
+    if (!answers || !Array.isArray(answers) || answers.length === 0)
       return res.status(400).json({ message: "answers array is required" });
-    }
 
     const dailyQ = await prisma.dailyQuestion.findUnique({ where: { date: today } });
     if (!dailyQ) return res.status(404).json({ message: "Today's questions not found. Call /today first." });
@@ -201,33 +162,19 @@ export const submitDailyAnswers = async (req, res) => {
       where: { userId_streakDate: { userId, streakDate: today } }
     });
 
-    if (existing?.isCompleted) {
+    if (existing?.isCompleted)
       return res.status(400).json({ message: "Already completed today's questions!" });
-    }
 
     await prisma.userStreak.upsert({
       where:  { userId_streakDate: { userId, streakDate: today } },
       update: { answers: JSON.stringify(answers), isCompleted: true, completedAt: new Date() },
-      create: {
-        userId,
-        streakDate: today,
-        dailyQuestionId: dailyQ.id,
-        answers: JSON.stringify(answers),
-        isCompleted: true,
-        completedAt: new Date()
-      }
+      create: { userId, streakDate: today, dailyQuestionId: dailyQ.id, answers: JSON.stringify(answers), isCompleted: true, completedAt: new Date() }
     });
 
     const streakInfo = await getStreakInfo(userId);
     const gifts = await checkAndAwardGifts(userId, streakInfo.currentStreak);
 
-    return res.json({
-      success: true,
-      message: "Daily questions completed! 🎉",
-      streak: streakInfo,
-      gifts,
-      questions: JSON.parse(dailyQ.questions)
-    });
+    return res.json({ success: true, message: "Daily questions completed! 🎉", streak: streakInfo, gifts, questions: JSON.parse(dailyQ.questions) });
 
   } catch (error) {
     console.error("SUBMIT DAILY ERROR:", error);
@@ -235,12 +182,9 @@ export const submitDailyAnswers = async (req, res) => {
   }
 };
 
-// ─── GET STREAK DASHBOARD ─────────────────────────────────────────────────────
-
 export const getStreakDashboard = async (req, res) => {
   try {
     const userId = req.user.id;
-    // ✅ completedDates ab yahan bhi aa raha hai
     const streakInfo = await getStreakInfo(userId);
 
     const thirtyDaysAgo = new Date();
@@ -252,18 +196,11 @@ export const getStreakDashboard = async (req, res) => {
       take: 30
     });
 
-    const gifts = await prisma.gift.findMany({
-      where: { userId },
-      orderBy: { claimedAt: 'desc' }
-    });
+    const gifts = await prisma.gift.findMany({ where: { userId }, orderBy: { claimedAt: 'desc' } });
 
     return res.json({
-      success: true,
-      streak: streakInfo,
-      recentActivity: recentActivity.map(a => ({
-        date: a.streakDate,
-        isCompleted: a.isCompleted
-      })),
+      success: true, streak: streakInfo,
+      recentActivity: recentActivity.map(a => ({ date: a.streakDate, isCompleted: a.isCompleted })),
       gifts
     });
 
@@ -272,8 +209,6 @@ export const getStreakDashboard = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
-
-// ─── GET PREVIOUS DAY QUESTIONS ───────────────────────────────────────────────
 
 export const getDayQuestions = async (req, res) => {
   try {
@@ -288,9 +223,7 @@ export const getDayQuestions = async (req, res) => {
     });
 
     return res.json({
-      success: true,
-      date,
-      isCompleted: userStreak?.isCompleted || false,
+      success: true, date, isCompleted: userStreak?.isCompleted || false,
       questions: JSON.parse(dailyQ.questions),
       userAnswers: userStreak?.answers ? JSON.parse(userStreak.answers) : []
     });
@@ -301,25 +234,14 @@ export const getDayQuestions = async (req, res) => {
   }
 };
 
-// ─── SEND REMINDER EMAILS ─────────────────────────────────────────────────────
-
 export const sendReminders = async (req, res) => {
   try {
     const today = getTodayDate();
-
-    const allUsers = await prisma.user.findMany({
-      where: { isVerified: true },
-      select: { id: true, email: true, name: true }
-    });
-
-    const completedUserIds = await prisma.userStreak.findMany({
-      where: { streakDate: today, isCompleted: true },
-      select: { userId: true }
-    });
+    const allUsers = await prisma.user.findMany({ where: { isVerified: true }, select: { id: true, email: true, name: true } });
+    const completedUserIds = await prisma.userStreak.findMany({ where: { streakDate: today, isCompleted: true }, select: { userId: true } });
     const completedIds = new Set(completedUserIds.map(u => u.userId));
 
     let reminderCount = 0;
-
     for (const user of allUsers) {
       if (completedIds.has(user.id)) continue;
       try {
@@ -336,7 +258,6 @@ export const sendReminders = async (req, res) => {
     }
 
     return res.json({ success: true, remindersSent: reminderCount });
-
   } catch (error) {
     console.error("SEND REMINDERS ERROR:", error);
     return res.status(500).json({ message: "Server error" });
@@ -345,29 +266,17 @@ export const sendReminders = async (req, res) => {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// ✅ FIX: completedDates array add kiya — Dashboard heatmap ke liye
-const getStreakInfo = async (userId) => {
+export const getStreakInfo = async (userId) => {
   const streaks = await prisma.userStreak.findMany({
     where: { userId, isCompleted: true },
     orderBy: { streakDate: 'desc' }
   });
 
-  // ✅ Last 365 days ki completed dates — heatmap ke liye
   const yearAgo = new Date();
   yearAgo.setDate(yearAgo.getDate() - 365);
-  const completedDates = streaks
-    .filter(s => new Date(s.streakDate) >= yearAgo)
-    .map(s => s.streakDate)
+  const completedDates = streaks.filter(s => new Date(s.streakDate) >= yearAgo).map(s => s.streakDate);
 
-  if (streaks.length === 0) {
-    return {
-      currentStreak: 0,
-      longestStreak: 0,
-      totalCompleted: 0,
-      lastCompletedDate: null,
-      completedDates: []  // ✅
-    };
-  }
+  if (streaks.length === 0) return { currentStreak: 0, longestStreak: 0, totalCompleted: 0, lastCompletedDate: null, completedDates: [] };
 
   let currentStreak = 0;
   const today = getTodayDate();
@@ -375,8 +284,7 @@ const getStreakInfo = async (userId) => {
   yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayStr = yesterday.toISOString().split('T')[0];
 
-  let checkDate = streaks[0].streakDate === today || streaks[0].streakDate === yesterdayStr
-    ? streaks[0].streakDate : null;
+  let checkDate = streaks[0].streakDate === today || streaks[0].streakDate === yesterdayStr ? streaks[0].streakDate : null;
 
   if (checkDate) {
     for (const streak of streaks) {
@@ -399,13 +307,7 @@ const getStreakInfo = async (userId) => {
   }
   longestStreak = Math.max(longestStreak, currentStreak);
 
-  return {
-    currentStreak,
-    longestStreak,
-    totalCompleted: streaks.length,
-    lastCompletedDate: streaks[0]?.streakDate || null,
-    completedDates  // ✅ Dashboard heatmap ko green dots milenge
-  };
+  return { currentStreak, longestStreak, totalCompleted: streaks.length, lastCompletedDate: streaks[0]?.streakDate || null, completedDates };
 };
 
 const checkAndAwardGifts = async (userId, currentStreak) => {
@@ -433,12 +335,10 @@ const sendReminderEmail = async (email, name) => {
     <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;">
       <h2 style="color: #0ea5e9;">Hey ${name}! 🔥</h2>
       <p>You have <strong>4 hours left</strong> to complete today's 5 daily questions and maintain your streak!</p>
-      <p>Don't let your hard work go to waste. Just 5 questions — that's it!</p>
-      <a href="http://localhost:3000/streak"
+      <a href="${process.env.FRONTEND_URL || 'https://place-mentor-iota.vercel.app'}/streak"
          style="background: #0ea5e9; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; display: inline-block; margin-top: 16px;">
         Complete Today's Questions →
       </a>
-      <p style="color: #64748b; font-size: 12px; margin-top: 20px;">PlaceMentor — Ace Your Placement</p>
     </div>
   `;
   await sendOTP(email, null, subject, html);

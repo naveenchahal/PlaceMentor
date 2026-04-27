@@ -1,14 +1,10 @@
-import axios from "axios";
+// src/controllers/resumeController.js
 import fs from "fs";
 import { createRequire } from "module";
+import { callOllama } from "../config/groq.js";
 
 const require = createRequire(import.meta.url);
 const { PDFParse } = require("pdf-parse");
-
-const OLLAMA_URL = "http://localhost:11434/api/generate";
-const OLLAMA_MODEL = "llama3";
-
-// ─── Fix broken JSON from llama3 ─────────────────────────────────────────────
 
 const fixJSON = (str) => {
   str = str.replace(/:(\s*)(\d+)"/g, ':$1$2');
@@ -20,47 +16,28 @@ const parseJSON = (rawText) => {
   const jsonMatch = rawText.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error("No JSON found in response");
   let jsonStr = jsonMatch[0];
-  try {
-    return JSON.parse(jsonStr);
-  } catch {
-    jsonStr = fixJSON(jsonStr);
-    return JSON.parse(jsonStr);
-  }
+  try { return JSON.parse(jsonStr); }
+  catch { return JSON.parse(fixJSON(jsonStr)); }
 };
-
-// ─── Extract text from PDF ────────────────────────────────────────────────────
 
 const extractTextFromPDF = async (filePath) => {
   const buffer = fs.readFileSync(filePath);
-
-  // PDFParse is a class — needs options object with data
   const parser = new PDFParse({ data: buffer, verbosity: 0 });
   const result = await parser.getText();
-
-  // result.text contains full text, or join pages
   if (result.text) return result.text;
-
-  // fallback: join all pages
   return result.pages.map(p => p.text).join("\n");
 };
 
-// ─── ANALYZE RESUME ───────────────────────────────────────────────────────────
-
 export const analyzeResume = async (req, res) => {
   try {
-    if (!req.file) {
+    if (!req.file)
       return res.status(400).json({ message: "Resume PDF is required" });
-    }
 
     const { companyName, jobRole, requirements } = req.body;
 
-    if (!companyName || !jobRole || !requirements) {
-      return res.status(400).json({
-        message: "companyName, jobRole and requirements are all required"
-      });
-    }
+    if (!companyName || !jobRole || !requirements)
+      return res.status(400).json({ message: "companyName, jobRole and requirements are all required" });
 
-    // Extract text from PDF
     let resumeText;
     try {
       resumeText = await extractTextFromPDF(req.file.path);
@@ -70,9 +47,8 @@ export const analyzeResume = async (req, res) => {
       return res.status(422).json({ message: "Could not read PDF: " + err.message });
     }
 
-    if (!resumeText || resumeText.trim().length < 50) {
+    if (!resumeText || resumeText.trim().length < 50)
       return res.status(422).json({ message: "Resume appears to be empty or unreadable." });
-    }
 
     const prompt = `You are an expert ATS system and career counselor at ${companyName}.
 
@@ -113,39 +89,21 @@ Rules:
 - section scores are integer 0-10
 - overallVerdict must be: "Strong Match", "Moderate Match", or "Weak Match"`;
 
-    const ollamaRes = await axios.post(OLLAMA_URL, {
-      model: OLLAMA_MODEL,
-      prompt,
-      stream: false
-    }, { timeout: 180000 });
-
-    const rawText = ollamaRes.data.response.trim();
+    const rawText = await callOllama(prompt, 180000);
 
     let analysis;
-    try {
-      analysis = parseJSON(rawText);
-    } catch (parseErr) {
+    try { analysis = parseJSON(rawText); }
+    catch (parseErr) {
       console.error("PARSE ERROR:", parseErr.message);
-      return res.status(500).json({ message: "Failed to parse AI response", raw: rawText });
+      return res.status(500).json({ message: "Failed to parse AI response" });
     }
 
-    // Cleanup uploaded file
     if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
 
-    return res.json({
-      success: true,
-      companyName,
-      jobRole,
-      analysis
-    });
+    return res.json({ success: true, companyName, jobRole, analysis });
 
   } catch (error) {
-    if (req.file?.path && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-    if (error.code === "ECONNREFUSED") {
-      return res.status(503).json({ message: "Ollama is not running. Start with: ollama serve" });
-    }
+    if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     console.error("ANALYZE RESUME ERROR:", error);
     return res.status(500).json({ message: "Server error" });
   }

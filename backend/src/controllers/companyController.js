@@ -1,10 +1,6 @@
-import axios from "axios";
+// src/controllers/companyController.js
 import prisma from "../config/prisma.js";
-
-const OLLAMA_URL = "http://localhost:11434/api/generate";
-const OLLAMA_MODEL = "llama3";
-
-// ─── Company Data ─────────────────────────────────────────────────────────────
+import { callOllama } from "../config/groq.js";
 
 const COMPANIES = {
   google: {
@@ -62,8 +58,6 @@ const COMPANIES = {
 const TOPICS = ["DSA", "System Design", "HR", "OOPs", "DBMS", "OS", "Networking", "Machine Coding", "Aptitude"];
 const DIFFICULTIES = ["easy", "medium", "hard"];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 const fixJSON = (str) => {
   str = str.replace(/:(\s*)(\d+)"/g, ':$1$2');
   str = str.replace(/,(\s*[}\]])/g, '$1');
@@ -78,16 +72,10 @@ const parseJSON = (rawText) => {
   catch { return JSON.parse(fixJSON(jsonStr)); }
 };
 
-// ─── GET ALL COMPANIES ────────────────────────────────────────────────────────
-
-// GET /api/company/list
 export const getCompanies = async (req, res) => {
   try {
     const list = Object.entries(COMPANIES).map(([key, val]) => ({
-      key,
-      name: val.name,
-      rounds: val.rounds,
-      focusTopics: val.focusTopics
+      key, name: val.name, rounds: val.rounds, focusTopics: val.focusTopics
     }));
     return res.json({ success: true, companies: list });
   } catch (error) {
@@ -95,66 +83,40 @@ export const getCompanies = async (req, res) => {
   }
 };
 
-// ─── GENERATE COMPANY QUESTIONS ───────────────────────────────────────────────
-
-// POST /api/company/questions
-// Body: { company, topic, difficulty, numQuestions, round }
 export const generateCompanyQuestions = async (req, res) => {
   try {
     const { company, topic, difficulty, numQuestions, round } = req.body;
     const userId = req.user.id;
 
-    if (!company || !topic || !difficulty || !numQuestions) {
+    if (!company || !topic || !difficulty || !numQuestions)
       return res.status(400).json({ message: "company, topic, difficulty and numQuestions are required" });
-    }
 
     const companyData = COMPANIES[company.toLowerCase()];
-    if (!companyData) {
+    if (!companyData)
       return res.status(400).json({ message: `Invalid company. Choose from: ${Object.keys(COMPANIES).join(", ")}` });
-    }
 
     const num = parseInt(numQuestions);
-    if (isNaN(num) || num < 1 || num > 20) {
+    if (isNaN(num) || num < 1 || num > 20)
       return res.status(400).json({ message: "numQuestions must be between 1 and 20" });
-    }
 
-    // Check if questions already exist in DB
     const existing = await prisma.companyQuestion.findMany({
-      where: {
-        company: company.toLowerCase(),
-        topic,
-        difficulty,
-        ...(round ? { round } : {})
-      },
+      where: { company: company.toLowerCase(), topic, difficulty, ...(round ? { round } : {}) },
       take: num
     });
 
     if (existing.length >= num) {
-      // Return from DB — no AI needed
       return res.json({
-        success: true,
-        source: "database",
-        company: companyData.name,
-        topic,
-        difficulty,
-        round: round || "General",
-        questions: existing.map(q => ({
-          id: q.id,
-          question: q.question,
-          answer: q.answer,
-          difficulty: q.difficulty,
-          topic: q.topic,
-          round: q.round
-        }))
+        success: true, source: "database", company: companyData.name,
+        topic, difficulty, round: round || "General",
+        questions: existing.map(q => ({ id: q.id, question: q.question, answer: q.answer, difficulty: q.difficulty, topic: q.topic, round: q.round }))
       });
     }
 
-    // Generate with AI
     const roundInfo = round ? `for the ${round} round` : "";
     const prompt = `You are an expert interviewer at ${companyData.name}.
 Generate exactly ${num} ${difficulty} level interview questions ${roundInfo} on the topic: "${topic}".
 
-${companyData.name} interview style and focus: ${companyData.focusTopics.join(", ")}.
+${companyData.name} focus: ${companyData.focusTopics.join(", ")}.
 
 Return ONLY a raw JSON array. No markdown, no explanation.
 
@@ -172,92 +134,46 @@ Return ONLY a raw JSON array. No markdown, no explanation.
 
 Rules:
 - id must be plain integer
-- difficulty must be exactly: "${difficulty}"
-- Questions must be specific to ${companyData.name} interview style
-- Answers must be detailed with key points interviewers look for`;
+- Questions must be specific to ${companyData.name} interview style`;
 
-    const ollamaRes = await axios.post(OLLAMA_URL, {
-      model: OLLAMA_MODEL,
-      prompt,
-      stream: false
-    }, { timeout: 180000 });
-
+    const rawText = await callOllama(prompt, 180000);
     let questions;
-    try {
-      questions = parseJSON(ollamaRes.data.response.trim());
-    } catch (err) {
-      return res.status(500).json({ message: "Failed to parse AI response" });
-    }
+    try { questions = parseJSON(rawText); }
+    catch (err) { return res.status(500).json({ message: "Failed to parse AI response" }); }
 
-    // Save to DB
     const saved = await Promise.all(questions.map(q =>
       prisma.companyQuestion.create({
         data: {
-          company: company.toLowerCase(),
-          companyName: companyData.name,
-          question: q.question,
-          answer: q.answer,
-          topic,
-          difficulty,
-          round: round || "General",
-          type: q.type || "technical",
-          generatedBy: userId
+          company: company.toLowerCase(), companyName: companyData.name,
+          question: q.question, answer: q.answer, topic, difficulty,
+          round: round || "General", type: q.type || "technical", generatedBy: userId
         }
       })
     ));
 
     return res.json({
-      success: true,
-      source: "ai",
-      company: companyData.name,
-      topic,
-      difficulty,
-      round: round || "General",
-      questions: saved.map(q => ({
-        id: q.id,
-        question: q.question,
-        answer: q.answer,
-        difficulty: q.difficulty,
-        topic: q.topic,
-        round: q.round
-      }))
+      success: true, source: "ai", company: companyData.name,
+      topic, difficulty, round: round || "General",
+      questions: saved.map(q => ({ id: q.id, question: q.question, answer: q.answer, difficulty: q.difficulty, topic: q.topic, round: q.round }))
     });
 
   } catch (error) {
-    if (error.code === "ECONNREFUSED") {
-      return res.status(503).json({ message: "Ollama is not running. Start with: ollama serve" });
-    }
     console.error("COMPANY QUESTIONS ERROR:", error);
     return res.status(500).json({ message: "Server error" });
   }
 };
 
-// ─── GET COMPANY INFO ─────────────────────────────────────────────────────────
-
-// GET /api/company/:company
 export const getCompanyInfo = async (req, res) => {
   try {
     const { company } = req.params;
     const companyData = COMPANIES[company.toLowerCase()];
+    if (!companyData) return res.status(404).json({ message: "Company not found" });
 
-    if (!companyData) {
-      return res.status(404).json({ message: "Company not found" });
-    }
-
-    // Get question count from DB
-    const questionCount = await prisma.companyQuestion.count({
-      where: { company: company.toLowerCase() }
-    });
+    const questionCount = await prisma.companyQuestion.count({ where: { company: company.toLowerCase() } });
 
     return res.json({
       success: true,
-      company: {
-        key: company.toLowerCase(),
-        ...companyData,
-        questionCount,
-        availableTopics: TOPICS,
-        availableDifficulties: DIFFICULTIES
-      }
+      company: { key: company.toLowerCase(), ...companyData, questionCount, availableTopics: TOPICS, availableDifficulties: DIFFICULTIES }
     });
   } catch (error) {
     return res.status(500).json({ message: "Server error" });

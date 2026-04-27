@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-     "build": "npx prisma generate"
+    "build": "npx prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -19,6 +19,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^4.22.1",
+    "groq-sdk": "^1.1.2",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
     "node-cron": "^4.2.1",
