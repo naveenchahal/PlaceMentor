@@ -18,7 +18,7 @@ export const callOllama = async (prompt, timeout = 120000) => {
 // SSE streaming version — dsaController ke liye
 export const streamOllama = async (prompt, res) => {
   const stream = await groq.chat.completions.create({
-    model: "llama3-8b-8192",
+    model: "llama-3.3-70b-versatile",
     messages: [{ role: "user", content: prompt }],
     max_tokens: 4000,
     stream: true,
