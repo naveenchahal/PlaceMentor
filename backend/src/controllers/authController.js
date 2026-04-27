@@ -1,6 +1,7 @@
 import prisma from "../config/prisma.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 
 import generateOTP from "../services/otpService.js";
 import sendOTP from "../services/emailService.js";
@@ -166,7 +167,7 @@ export const resendOTP = async (req, res) => {
 };
 
 
-// ✅ LOGIN
+// ✅ LOGIN — ek email = ek active session
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -197,13 +198,23 @@ export const login = async (req, res) => {
       return res.status(400).json({ message: "Invalid password" });
     }
 
+    // ✅ Unique sessionToken generate karo — naya login = purani device logout
+    const sessionToken = crypto.randomBytes(32).toString("hex");
+
+    // sessionToken DB mein save karo — purana automatically replace ho jaata hai
+    await prisma.user.update({
+      where: { email: normalizedEmail },
+      data: { sessionToken }
+    });
+
+    // sessionToken ko JWT mein embed karo
     const token = jwt.sign(
-      { id: user.id, role: user.role },
+      { id: user.id, role: user.role, sessionToken },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    const { password: _pw, otp: _otp, otpExpire: _exp, otpSentAt: _sent, ...safeUser } = user;
+    const { password: _pw, otp: _otp, otpExpire: _exp, otpSentAt: _sent, sessionToken: _st, ...safeUser } = user;
     return res.json({ token, user: safeUser });
 
   } catch (error) {
@@ -308,7 +319,8 @@ export const resetPassword = async (req, res) => {
         password: hashed,
         otp: null,
         otpExpire: null,
-        otpSentAt: null
+        otpSentAt: null,
+        sessionToken: null  // ✅ Password reset par sabhi devices logout
       }
     });
 
