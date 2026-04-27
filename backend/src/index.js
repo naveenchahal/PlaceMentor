@@ -26,6 +26,7 @@ app.use(cors({
     "http://localhost:5173",
     "https://place-mentor-iota.vercel.app"  
   ],
+  methods:['PUT','GET','POST','DELETE','PATCH'],
   credentials: true
 }));
 
