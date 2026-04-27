@@ -3,8 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
-fetch(`${API}/admin/stats`)
-
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -24,13 +22,13 @@ export default function AdminDashboard() {
   }, []);
 
   const fetchStats = async () => {
-    const res = await fetch(`${API}/api/admin/stats`, { headers });
+    const res = await fetch(`${API}/admin/stats`, { headers });
     const data = await res.json();
     setStats(data);
   };
 
   const fetchUsers = async () => {
-    const res = await fetch(`${API}/api/admin/users`, { headers });
+    const res = await fetch(`${API}/admin/users`, { headers });
     const data = await res.json();
     setUsers(data.users || []);
     setLoading(false);
@@ -38,19 +36,19 @@ export default function AdminDashboard() {
 
   const makeAdmin = async (id) => {
     if (!confirm("Make this user ADMIN?")) return;
-    await fetch(`${API}/api/admin/users/${id}/make-admin`, { method: "PATCH", headers });
+    await fetch(`${API}/admin/users/${id}/make-admin`, { method: "PATCH", headers });
     fetchUsers();
   };
 
   const removeAdmin = async (id) => {
     if (!confirm("Demote this admin to USER?")) return;
-    await fetch(`${API}/api/admin/users/${id}/remove-admin`, { method: "PATCH", headers });
+    await fetch(`${API}/admin/users/${id}/remove-admin`, { method: "PATCH", headers });
     fetchUsers();
   };
 
   const deleteUser = async (id) => {
     if (!confirm("DELETE this user permanently?")) return;
-    await fetch(`${API}/api/admin/users/${id}`, { method: "DELETE", headers });
+    await fetch(`${API}/admin/users/${id}`, { method: "DELETE", headers });
     fetchUsers();
   };
 
