@@ -2,7 +2,7 @@
 import jwt from "jsonwebtoken";
 import prisma from "../config/prisma.js";
 
-const protect = async (req, res, next) => {
+export const protect = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
@@ -13,7 +13,7 @@ const protect = async (req, res, next) => {
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // ✅ DB se user fetch karo aur sessionToken match karo
+    // DB se sessionToken fetch karo
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
       select: { id: true, role: true, sessionToken: true }
@@ -23,8 +23,8 @@ const protect = async (req, res, next) => {
       return res.status(401).json({ message: "User not found" });
     }
 
-    // ✅ Agar sessionToken match nahi karta — matlab kisi aur device ne login kar liya
-    if (user.sessionToken !== decoded.sessionToken) {
+    // JWT ka sessionToken DB se match nahi karta = naya login aa gaya = purani device logout
+    if (!user.sessionToken || user.sessionToken !== decoded.sessionToken) {
       return res.status(401).json({ message: "Session expired. Please login again." });
     }
 
@@ -38,4 +38,3 @@ const protect = async (req, res, next) => {
     return res.status(401).json({ message: "Invalid token" });
   }
 };
-export default protect;

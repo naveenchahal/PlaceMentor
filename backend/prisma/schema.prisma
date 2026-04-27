@@ -29,7 +29,6 @@ model User {
   provider   String  @default("local")
   isVerified Boolean @default(false)
 
-  // ✅ Single-device session control
   sessionToken String? @unique
 
   createdAt DateTime @default(now())

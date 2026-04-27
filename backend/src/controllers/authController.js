@@ -6,8 +6,8 @@ import crypto from "crypto";
 import generateOTP from "../services/otpService.js";
 import sendOTP from "../services/emailService.js";
 
-const OTP_TTL_MS = 5 * 60 * 1000;       // 5 minutes
-const RESEND_COOLDOWN_MS = 60 * 1000;    // 60 seconds
+const OTP_TTL_MS = 5 * 60 * 1000;
+const RESEND_COOLDOWN_MS = 60 * 1000;
 
 
 // ✅ REGISTER
@@ -27,7 +27,6 @@ export const register = async (req, res) => {
     if (existingUser) {
       if (!existingUser.isVerified) {
         const otp = generateOTP();
-
         await prisma.user.update({
           where: { email: normalizedEmail },
           data: {
@@ -38,11 +37,9 @@ export const register = async (req, res) => {
             otpSentAt: new Date()
           }
         });
-
         await sendOTP(normalizedEmail, otp);
         return res.json({ message: "OTP resent" });
       }
-
       return res.status(400).json({ message: "User already exists" });
     }
 
@@ -70,7 +67,7 @@ export const register = async (req, res) => {
 };
 
 
-// ✅ VERIFY OTP (for registration)
+// ✅ VERIFY OTP
 export const verifyOTP = async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -80,30 +77,15 @@ export const verifyOTP = async (req, res) => {
       return res.status(400).json({ message: "Email & OTP required" });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: normalizedEmail }
-    });
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
-    if (!user) {
-      return res.status(400).json({ message: "User not found" });
-    }
-
-    if (user.otpExpire < new Date()) {
-      return res.status(400).json({ message: "OTP expired" });
-    }
-
-    if (user.otp !== String(otp).trim()) {
-      return res.status(400).json({ message: "Invalid OTP" });
-    }
+    if (!user)                      return res.status(400).json({ message: "User not found" });
+    if (user.otpExpire < new Date()) return res.status(400).json({ message: "OTP expired" });
+    if (user.otp !== String(otp).trim()) return res.status(400).json({ message: "Invalid OTP" });
 
     await prisma.user.update({
       where: { email: normalizedEmail },
-      data: {
-        isVerified: true,
-        otp: null,
-        otpExpire: null,
-        otpSentAt: null
-      }
+      data: { isVerified: true, otp: null, otpExpire: null, otpSentAt: null }
     });
 
     return res.json({ message: "Account verified" });
@@ -115,46 +97,31 @@ export const verifyOTP = async (req, res) => {
 };
 
 
-// ✅ RESEND OTP (for registration verification)
+// ✅ RESEND OTP
 export const resendOTP = async (req, res) => {
   try {
     const { email } = req.body;
     const normalizedEmail = email?.toLowerCase().trim();
 
-    if (!normalizedEmail) {
-      return res.status(400).json({ message: "Email required" });
-    }
+    if (!normalizedEmail) return res.status(400).json({ message: "Email required" });
 
-    const user = await prisma.user.findUnique({
-      where: { email: normalizedEmail }
-    });
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
+    if (!user)           return res.status(404).json({ message: "User not found" });
+    if (user.isVerified) return res.status(400).json({ message: "Account already verified" });
 
-    if (user.isVerified) {
-      return res.status(400).json({ message: "Account already verified" });
-    }
-
-    // ⏳ Cooldown check — prevent OTP spam
     if (user.otpSentAt) {
-      const secondsSinceLast = (Date.now() - new Date(user.otpSentAt).getTime());
-      if (secondsSinceLast < RESEND_COOLDOWN_MS) {
-        const waitSec = Math.ceil((RESEND_COOLDOWN_MS - secondsSinceLast) / 1000);
+      const elapsed = Date.now() - new Date(user.otpSentAt).getTime();
+      if (elapsed < RESEND_COOLDOWN_MS) {
+        const waitSec = Math.ceil((RESEND_COOLDOWN_MS - elapsed) / 1000);
         return res.status(429).json({ message: `Please wait ${waitSec}s before requesting a new OTP` });
       }
     }
 
     const otp = generateOTP();
-
     await prisma.user.update({
       where: { email: normalizedEmail },
-      data: {
-        otp,
-        otpExpire: new Date(Date.now() + OTP_TTL_MS),
-        otpSentAt: new Date()
-      }
+      data: { otp, otpExpire: new Date(Date.now() + OTP_TTL_MS), otpSentAt: new Date() }
     });
 
     await sendOTP(normalizedEmail, otp);
@@ -177,37 +144,24 @@ export const login = async (req, res) => {
       return res.status(400).json({ message: "Email & password required" });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: normalizedEmail }
-    });
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    if (!user.isVerified) {
-      return res.status(400).json({ message: "Please verify your email first" });
-    }
-
-    if (!user.password) {
-      return res.status(400).json({ message: "Use Google login" });
-    }
+    if (!user)             return res.status(404).json({ message: "User not found" });
+    if (!user.isVerified)  return res.status(400).json({ message: "Please verify your email first" });
+    if (!user.password)    return res.status(400).json({ message: "Use Google login" });
 
     const match = await bcrypt.compare(password, user.password);
-    if (!match) {
-      return res.status(400).json({ message: "Invalid password" });
-    }
+    if (!match) return res.status(400).json({ message: "Invalid password" });
 
-    // ✅ Unique sessionToken generate karo — naya login = purani device logout
+    // Naya sessionToken generate karo — purani device automatically logout ho jaayegi
     const sessionToken = crypto.randomBytes(32).toString("hex");
 
-    // sessionToken DB mein save karo — purana automatically replace ho jaata hai
     await prisma.user.update({
-      where: { email: normalizedEmail },
+      where: { id: user.id },
       data: { sessionToken }
     });
 
-    // sessionToken ko JWT mein embed karo
+    // sessionToken JWT mein bhi daalo — middleware verify karega
     const token = jwt.sign(
       { id: user.id, role: user.role, sessionToken },
       process.env.JWT_SECRET,
@@ -224,21 +178,16 @@ export const login = async (req, res) => {
 };
 
 
-// ✅ FORGOT PASSWORD — step 1: send OTP to email
+// ✅ FORGOT PASSWORD
 export const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
     const normalizedEmail = email?.toLowerCase().trim();
 
-    if (!normalizedEmail) {
-      return res.status(400).json({ message: "Email required" });
-    }
+    if (!normalizedEmail) return res.status(400).json({ message: "Email required" });
 
-    const user = await prisma.user.findUnique({
-      where: { email: normalizedEmail }
-    });
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
-    // Always return same message to prevent email enumeration
     if (!user || !user.isVerified) {
       return res.json({ message: "If this email exists, an OTP has been sent" });
     }
@@ -247,24 +196,18 @@ export const forgotPassword = async (req, res) => {
       return res.status(400).json({ message: "Use Google login to reset your password" });
     }
 
-    // ⏳ Cooldown check
     if (user.otpSentAt) {
-      const secondsSinceLast = (Date.now() - new Date(user.otpSentAt).getTime());
-      if (secondsSinceLast < RESEND_COOLDOWN_MS) {
-        const waitSec = Math.ceil((RESEND_COOLDOWN_MS - secondsSinceLast) / 1000);
+      const elapsed = Date.now() - new Date(user.otpSentAt).getTime();
+      if (elapsed < RESEND_COOLDOWN_MS) {
+        const waitSec = Math.ceil((RESEND_COOLDOWN_MS - elapsed) / 1000);
         return res.status(429).json({ message: `Please wait ${waitSec}s before requesting again` });
       }
     }
 
     const otp = generateOTP();
-
     await prisma.user.update({
       where: { email: normalizedEmail },
-      data: {
-        otp,
-        otpExpire: new Date(Date.now() + OTP_TTL_MS),
-        otpSentAt: new Date()
-      }
+      data: { otp, otpExpire: new Date(Date.now() + OTP_TTL_MS), otpSentAt: new Date() }
     });
 
     await sendOTP(normalizedEmail, otp);
@@ -277,7 +220,7 @@ export const forgotPassword = async (req, res) => {
 };
 
 
-// ✅ RESET PASSWORD — step 2: verify OTP + set new password
+// ✅ RESET PASSWORD
 export const resetPassword = async (req, res) => {
   try {
     const { email, otp, newPassword } = req.body;
@@ -291,25 +234,12 @@ export const resetPassword = async (req, res) => {
       return res.status(400).json({ message: "Password must be at least 8 characters" });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email: normalizedEmail }
-    });
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
-    if (!user) {
-      return res.status(400).json({ message: "User not found" });
-    }
-
-    if (!user.otp || !user.otpExpire) {
-      return res.status(400).json({ message: "No OTP requested. Please use forgot password first." });
-    }
-
-    if (user.otpExpire < new Date()) {
-      return res.status(400).json({ message: "OTP expired. Please request a new one." });
-    }
-
-    if (user.otp !== String(otp).trim()) {
-      return res.status(400).json({ message: "Invalid OTP" });
-    }
+    if (!user)                return res.status(400).json({ message: "User not found" });
+    if (!user.otp || !user.otpExpire) return res.status(400).json({ message: "No OTP requested. Please use forgot password first." });
+    if (user.otpExpire < new Date())  return res.status(400).json({ message: "OTP expired. Please request a new one." });
+    if (user.otp !== String(otp).trim()) return res.status(400).json({ message: "Invalid OTP" });
 
     const hashed = await bcrypt.hash(newPassword, 10);
 
@@ -320,7 +250,7 @@ export const resetPassword = async (req, res) => {
         otp: null,
         otpExpire: null,
         otpSentAt: null,
-        sessionToken: null  // ✅ Password reset par sabhi devices logout
+        sessionToken: null  // password reset = sabhi devices logout
       }
     });
 
