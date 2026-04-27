@@ -11,7 +11,7 @@ const PLATFORMS = [
 const SOLVE_LEVELS = [
   { value: 'explain', label: '📖 Question Explain', desc: 'Full breakdown of problem, concepts & approach' },
   { value: 'hints',   label: '💡 Hints',            desc: 'Progressive hints — no spoilers' },
-  { value: 'code',    label: '💻 Full Code',         desc: 'Complete solution with walkthrough & complexity' },
+  { value: 'solve',   label: '💻 Full Code',         desc: 'Complete solution with walkthrough & complexity' }, // ✅ 'code' → 'solve'
 ]
 
 const LANGUAGES = [
@@ -57,11 +57,25 @@ export default function DSASolver() {
         body: JSON.stringify({ platform, questionNumber, solveLevel, language }),
       })
 
+      // ✅ Fix: error response SSE nahi hoti — pehle text lo, phir parse karo
       if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || 'Server error')
+        const text = await res.text()
+        let message = 'Server error'
+        try {
+          const parsed = JSON.parse(text)
+          // Backend validation errors — details array ho sakta hai
+          if (parsed.details?.length) {
+            message = parsed.details.join(' • ')
+          } else {
+            message = parsed.error || message
+          }
+        } catch {
+          message = text || message
+        }
+        throw new Error(message)
       }
 
+      // ✅ SSE stream padhna — reader se
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
@@ -69,16 +83,24 @@ export default function DSASolver() {
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
+
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
-        buffer = lines.pop()
+        buffer = lines.pop() // incomplete line buffer mein rakhlo
+
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6))
-              if (data.text)  setResponse(prev => prev + data.text)
-              if (data.error) throw new Error(data.error)
-            } catch (_) {}
+          if (!line.startsWith('data: ')) continue
+          const jsonStr = line.slice(6).trim()
+          if (!jsonStr) continue
+
+          try {
+            const data = JSON.parse(jsonStr)
+            if (data.error) throw new Error(data.error)
+            if (data.text)  setResponse(prev => prev + data.text)
+            // data.done — kuch nahi karna, loop naturally khatam ho jaayega
+          } catch (parseErr) {
+            // Ek bad chunk ke liye poori stream mat todo
+            console.warn('Bad SSE chunk skipped:', jsonStr)
           }
         }
       }
@@ -287,7 +309,7 @@ export default function DSASolver() {
               </div>
             )}
 
-            {/* Response — rendered as formatted text */}
+            {/* Response */}
             {(response || loading) && (
               <div className="prose-dsa text-slate-300 text-sm leading-7 whitespace-pre-wrap font-mono">
                 {response}
