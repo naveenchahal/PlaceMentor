@@ -7,7 +7,13 @@ const TOPICS = {
   backend: "Backend Development (REST APIs, databases, authentication, caching, system design)",
   react: "React.js (hooks, state management, component lifecycle, performance, Redux)",
   aptitude: "Aptitude (quantitative, logical reasoning, verbal ability, puzzles)",
-  hr: "HR Round (tell me about yourself, strengths & weaknesses, why this company, teamwork, conflict resolution, career goals, salary expectations, situational questions)"
+  hr: "HR Round (tell me about yourself, strengths & weaknesses, why this company, teamwork, conflict resolution, career goals, salary expectations, situational questions)",
+  frontend: "Frontend Development (HTML, CSS, JavaScript, DOM manipulation, browser APIs, responsive design, accessibility, performance optimization)",
+  systemdesign: "System Design (scalability, load balancing, caching, database design, microservices, message queues, CAP theorem, high availability)",
+  genai: "Generative AI (LLMs, prompt engineering, RAG, fine-tuning, embeddings, vector databases, AI agents, diffusion models, transformers)",
+  devops: "DevOps (CI/CD pipelines, Docker, Kubernetes, cloud platforms AWS/GCP/Azure, monitoring, logging, infrastructure as code, Git workflows)",
+  os: "Operating Systems (processes, threads, scheduling, memory management, virtual memory, file systems, deadlocks, synchronization, IPC)",
+  networking: "Computer Networking (OSI model, TCP/IP, HTTP/HTTPS, DNS, load balancers, sockets, REST vs WebSockets, CDN, network security)"
 };
 
 const TIME_LIMITS = { "30": 30, "60": 60, "90": 90 };
@@ -31,6 +37,9 @@ const sanitizeQuestion = (q) => {
   return safeQ;
 };
 
+// Text-only topics (no MCQ or code)
+const TEXT_ONLY_TOPICS = ["hr", "aptitude"];
+
 // ─── START INTERVIEW SESSION ──────────────────────────────────────────────────
 export const startInterview = async (req, res) => {
   try {
@@ -49,10 +58,13 @@ export const startInterview = async (req, res) => {
 
     const timeLimitMin = TIME_LIMITS[String(duration)] || 60;
     const topicDescription = TOPICS[topic];
+    const isTextOnly = TEXT_ONLY_TOPICS.includes(topic);
 
     const prompt = `You are an expert interviewer conducting a ${timeLimitMin}-minute technical interview on: ${topicDescription}.
 
-${topic === "hr" ? `Generate exactly ${num} HR interview questions. All must be type "text" — no MCQ or code.` : `Generate exactly ${num} interview questions. Mix different types.`}
+${isTextOnly
+  ? `Generate exactly ${num} questions. All must be type "text" — no MCQ or code.`
+  : `Generate exactly ${num} interview questions. Mix different types (mcq, text, code).`}
 
 Return ONLY a raw JSON array. No markdown, no explanation.
 
