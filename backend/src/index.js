@@ -20,15 +20,34 @@ dotenv.config();
 const app = express();
 
 // ← ADD THESE LINES
-app.use(cors({
-  origin: [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "https://place-mentor-iota.vercel.app"  
-  ],
-  methods:['PUT','GET','POST','DELETE','PATCH'],
-  credentials: true
-}));
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "https://place-mentor-iota.vercel.app", // production URL
+];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+
+      // Allow karo production URL + saari Vercel preview URLs
+      const isAllowed =
+        allowedOrigins.includes(origin) ||
+        /^https:\/\/place-mentor.*\.vercel\.app$/.test(origin);
+
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        console.error(`❌ CORS blocked: ${origin}`);
+        callback(new Error(`CORS policy: Origin ${origin} not allowed`));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
