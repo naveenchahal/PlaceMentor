@@ -2,46 +2,192 @@
 import prisma from "../config/prisma.js";
 import sendOTP from "../services/emailService.js";
 import { callOllama } from "../config/groq.js";
+import cron from "node-cron";
+
+// ─── JSON Helpers ─────────────────────────────────────────────────────────────
 
 const fixJSON = (str) => {
-  str = str.replace(/:(\s*)(\d+)"/g, ':$1$2');
-  str = str.replace(/,(\s*[}\]])/g, '$1');
+  str = str.replace(/:(\s*)(\d+)"/g, ":$1$2");
+  str = str.replace(/,(\s*[}\]])/g, "$1");
   return str;
 };
 
 const parseJSON = (rawText) => {
-  const jsonMatch = rawText.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) throw new Error("No JSON array found");
-  let jsonStr = jsonMatch[0];
-  try { return JSON.parse(jsonStr); }
-  catch { return JSON.parse(fixJSON(jsonStr)); }
-};
-
-const getTodayDate = () => new Date().toISOString().split('T')[0];
-
-const GIFT_MESSAGES = {
-  weekly: {
-    7:   "🎉 7-Day Streak! You're on fire! Keep this momentum going!",
-    14:  "🔥 14-Day Streak! Two weeks of dedication — amazing!",
-    21:  "⚡ 21-Day Streak! Three weeks strong! You're unstoppable!",
-    28:  "🌟 28-Day Streak! Almost a month — incredible dedication!"
-  },
-  monthly: {
-    30:  "🏆 30-Day Streak! One full month! You're a placement prep champion!",
-    60:  "💎 60-Day Streak! Two months of consistency — legendary!",
-    90:  "🚀 90-Day Streak! Three months! You're going to crush every interview!"
-  },
-  yearly: {
-    365: "👑 365-Day Streak! ONE FULL YEAR! You are absolutely unstoppable!"
+  const cleaned = rawText.replace(/```json|```/gi, "").trim();
+  const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) throw new Error("No JSON array found in AI response");
+  const jsonStr = jsonMatch[0];
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    try {
+      return JSON.parse(fixJSON(jsonStr));
+    } catch (e) {
+      throw new Error("Failed to parse AI response as JSON: " + e.message);
+    }
   }
 };
 
-const generateDailyQuestions = async (date) => {
-  const prompt = `You are an expert interviewer. Generate exactly 5 interview questions for daily practice.
-One question per topic in this exact order: DSA, System Design, HR, OOPs, Aptitude.
-Date: ${date}
+const getTodayDate = () => new Date().toISOString().split("T")[0];
 
-Return ONLY a raw JSON array. No markdown, no explanation.
+// ─── Topics & Difficulty ──────────────────────────────────────────────────────
+
+const ALL_TOPICS = [
+  "DSA",
+  "System Design",
+  "HR",
+  "OOPs",
+  "Aptitude",
+  "Operating Systems",
+  "DBMS",
+  "Networking",
+  "Node.js",
+  "Express.js",
+  "React",
+  "JavaScript",
+];
+
+const DIFFICULTY_LEVELS = ["easy", "medium", "hard"];
+
+const pickRandomTopics = (count = 5) => {
+  const shuffled = [...ALL_TOPICS].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count);
+};
+
+const pickDifficulty = (topic) => {
+  if (topic === "Aptitude") return "hard";
+  return DIFFICULTY_LEVELS[Math.floor(Math.random() * DIFFICULTY_LEVELS.length)];
+};
+
+// ─── Gift Messages ────────────────────────────────────────────────────────────
+
+const GIFT_MESSAGES = {
+  weekly: {
+    7:  "🎉 7-Day Streak! You're on fire! Keep this momentum going!",
+    14: "🔥 14-Day Streak! Two weeks of dedication — amazing!",
+    21: "⚡ 21-Day Streak! Three weeks strong! You're unstoppable!",
+    28: "🌟 28-Day Streak! Almost a month — incredible dedication!",
+  },
+  monthly: {
+    30: "🏆 30-Day Streak! One full month! You're a placement prep champion!",
+    60: "💎 60-Day Streak! Two months of consistency — legendary!",
+    90: "🚀 90-Day Streak! Three months! You're going to crush every interview!",
+  },
+  yearly: {
+    365: "👑 365-Day Streak! ONE FULL YEAR! You are absolutely unstoppable!",
+  },
+};
+
+// ─── Pure JS Dice Coefficient (no external package needed) ───────────────────
+
+const getBigrams = (str) => {
+  const bigrams = new Set();
+  for (let i = 0; i < str.length - 1; i++) {
+    bigrams.add(str.slice(i, i + 2));
+  }
+  return bigrams;
+};
+
+const diceCoefficient = (a, b) => {
+  if (!a || !b) return 0;
+  const A = a.toLowerCase().trim();
+  const B = b.toLowerCase().trim();
+  if (A === B) return 1;
+  if (A.length < 2 || B.length < 2) return 0;
+  const bigramsA = getBigrams(A);
+  const bigramsB = getBigrams(B);
+  let intersection = 0;
+  for (const bigram of bigramsA) {
+    if (bigramsB.has(bigram)) intersection++;
+  }
+  return (2 * intersection) / (bigramsA.size + bigramsB.size);
+};
+
+// ─── 90-Day Duplicate Prevention ─────────────────────────────────────────────
+
+/**
+ * Fetches all question texts asked in the last 90 days from DB.
+ */
+const getRecentQuestionTexts = async () => {
+  const ninetyDaysAgo = new Date();
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+  const recentDailyQs = await prisma.dailyQuestion.findMany({
+    where:  { createdAt: { gte: ninetyDaysAgo } },
+    select: { questions: true },
+  });
+
+  const recentTexts = [];
+  for (const dq of recentDailyQs) {
+    try {
+      const parsed = JSON.parse(dq.questions);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((q) => {
+          if (q?.question) recentTexts.push(q.question.trim());
+        });
+      }
+    } catch {
+      // skip malformed entries silently
+    }
+  }
+  return recentTexts;
+};
+
+/**
+ * Returns true if a question is unique (safe to accept).
+ * Checks against:
+ *   1. Last 90 days questions from DB  (recentTexts)
+ *   2. Already accepted questions this session (acceptedTexts)
+ */
+const isUnique = (question, recentTexts, acceptedTexts, threshold = 0.75) => {
+  if (!question?.question) return false;
+  const newText = question.question.trim();
+
+  for (const oldText of recentTexts) {
+    if (diceCoefficient(newText, oldText) >= threshold) return false;
+  }
+  for (const acceptedText of acceptedTexts) {
+    if (diceCoefficient(newText, acceptedText) >= threshold) return false;
+  }
+  return true;
+};
+
+// ─── Prompt Builder ───────────────────────────────────────────────────────────
+
+const buildPrompt = (date, topicsWithDifficulty, avoidTexts) => {
+  const count = topicsWithDifficulty.length;
+
+  const avoidBlock =
+    avoidTexts.length > 0
+      ? `\nCRITICAL: Do NOT repeat or closely rephrase ANY of these ${avoidTexts.length} questions:\n${avoidTexts
+          .map((q, i) => `${i + 1}. ${q}`)
+          .join("\n")}\n`
+      : "";
+
+  const topicInstructions = topicsWithDifficulty
+    .map(
+      (t, i) =>
+        `Question ${i + 1}: Topic="${t.topic}", Difficulty="${t.difficulty}"`
+    )
+    .join("\n");
+
+  return `You are an expert technical interviewer for software engineering placement preparation.
+Generate exactly ${count} interview/aptitude question${count > 1 ? "s" : ""} for daily practice on ${date}.
+
+Assigned topics and difficulties (FOLLOW EXACTLY):
+${topicInstructions}
+${avoidBlock}
+Rules:
+1. Aptitude questions MUST be hard level with multi-step calculations or complex logical reasoning.
+2. Each question must be unique, non-trivial, and not a rephrasing of a common example.
+3. Question type selection:
+   - Use "mcq" for: Aptitude, OOPs, DBMS, Networking, Operating Systems
+   - Use "text" for: HR, System Design, DSA, Node.js, Express.js, React, JavaScript
+4. For "mcq": include "options" (array of 4 strings like ["A) ...", "B) ...", "C) ...", "D) ..."]) and "correctAnswer" (e.g. "B) ...").
+5. For "text": omit "options" and "correctAnswer" fields entirely.
+6. "answer" field must always be present with a detailed explanation.
+
+Return ONLY a raw JSON array. No markdown, no code fences, no explanation. Start directly with [
 
 [
   {
@@ -49,50 +195,157 @@ Return ONLY a raw JSON array. No markdown, no explanation.
     "topic": "DSA",
     "difficulty": "medium",
     "type": "text",
-    "question": "Explain the difference between BFS and DFS graph traversal.",
-    "answer": "BFS uses a queue and explores level by level, good for shortest path. DFS uses a stack/recursion and explores depth first, good for cycle detection and topological sort."
+    "question": "Explain the difference between BFS and DFS with their time complexities.",
+    "answer": "BFS uses a queue, explores level by level, O(V+E) time. DFS uses stack/recursion, explores depth first, O(V+E) time. BFS finds shortest path in unweighted graphs; DFS is used for cycle detection, topological sort."
   },
   {
     "id": 2,
-    "topic": "System Design",
-    "difficulty": "medium",
-    "type": "text",
-    "question": "How would you design a URL shortener?",
-    "answer": "Use a hash function to generate short codes, store mapping in DB with key-value store like Redis for caching, use load balancer for scale, handle redirects with 301/302 status codes."
-  },
-  {
-    "id": 3,
-    "topic": "HR",
-    "difficulty": "easy",
-    "type": "text",
-    "question": "Tell me about yourself.",
-    "answer": "Structure: Brief intro, education, key skills/projects, why this role. Keep it under 2 minutes. Focus on relevant experience."
-  },
-  {
-    "id": 4,
     "topic": "OOPs",
     "difficulty": "medium",
     "type": "mcq",
-    "question": "Which OOP concept allows a class to have multiple methods with the same name?",
-    "options": ["A) Inheritance", "B) Polymorphism", "C) Encapsulation", "D) Abstraction"],
-    "correctAnswer": "B) Polymorphism",
-    "answer": "Polymorphism allows multiple methods with same name but different parameters (overloading) or different implementations in subclasses (overriding)."
-  },
-  {
-    "id": 5,
-    "topic": "Aptitude",
-    "difficulty": "easy",
-    "type": "mcq",
-    "question": "If a train travels 60km in 1 hour, how long to travel 150km?",
-    "options": ["A) 2 hours", "B) 2.5 hours", "C) 3 hours", "D) 1.5 hours"],
-    "correctAnswer": "B) 2.5 hours",
-    "answer": "Speed = 60 km/h. Time = Distance/Speed = 150/60 = 2.5 hours."
+    "question": "Which principle ensures a subclass can replace its parent class without breaking the program?",
+    "options": ["A) Open/Closed Principle", "B) Liskov Substitution Principle", "C) Interface Segregation", "D) Dependency Inversion"],
+    "correctAnswer": "B) Liskov Substitution Principle",
+    "answer": "LSP states that objects of a superclass should be replaceable with objects of a subclass without affecting the correctness of the program."
   }
 ]`;
-
-  const rawText = await callOllama(prompt, 180000);
-  return parseJSON(rawText);
 };
+
+// ─── Core: Greedy Question Generation ────────────────────────────────────────
+
+/**
+ * STRATEGY — Greedy Collection across attempts:
+ *
+ * Instead of discarding ALL 5 questions when any duplicate found,
+ * we collect valid unique questions one-by-one across multiple rounds.
+ *
+ * Attempts 1–5 (strict, threshold 0.75):
+ *   - Ask AI for only as many questions as still NEEDED (not always 5)
+ *   - Filter each question individually via isUnique()
+ *   - Accept unique ones instantly, skip duplicates
+ *   - Stop as soon as acceptedQuestions.length === 5
+ *
+ * Attempt 6 — Fallback (relaxed, threshold 0.95):
+ *   - Only runs if still < 5 after all strict attempts
+ *   - Blocks only near-exact duplicates
+ *   - Fills remaining slots no matter what
+ */
+const generateDailyQuestions = async (date) => {
+  const recentTexts = await getRecentQuestionTexts(); // last 90 days from DB
+
+  const acceptedQuestions = []; // final result array
+  const acceptedTexts     = []; // question strings already accepted (intra-session dedup)
+
+  const TARGET             = 5;
+  const MAX_STRICT_ATTEMPTS = 5;
+
+  // ── Strict attempts 1–5 ───────────────────────────────────────────────────
+  for (let attempt = 1; attempt <= MAX_STRICT_ATTEMPTS; attempt++) {
+    if (acceptedQuestions.length >= TARGET) break;
+
+    const needed = TARGET - acceptedQuestions.length;
+    console.log(
+      `🎯 [Attempt ${attempt}] Need ${needed} more unique question${needed > 1 ? "s" : ""}...`
+    );
+
+    // Only request as many questions as still needed — saves tokens & time
+    const topics             = pickRandomTopics(needed);
+    const topicsWithDifficulty = topics.map((topic) => ({
+      topic,
+      difficulty: pickDifficulty(topic),
+    }));
+
+    // Tell AI to avoid both DB history AND already accepted questions this session
+    const avoidTexts = [...recentTexts, ...acceptedTexts];
+    const prompt     = buildPrompt(date, topicsWithDifficulty, avoidTexts);
+
+    let questions;
+    try {
+      const rawText = await callOllama(prompt, 180000);
+      questions = parseJSON(rawText);
+    } catch (err) {
+      console.warn(`⚠️ [Attempt ${attempt}] Failed: ${err.message} — retrying...`);
+      continue;
+    }
+
+    if (!Array.isArray(questions) || questions.length === 0) {
+      console.warn(`⚠️ [Attempt ${attempt}] Empty or invalid response — retrying...`);
+      continue;
+    }
+
+    // Greedy: check and accept each question individually
+    for (const q of questions) {
+      if (acceptedQuestions.length >= TARGET) break;
+
+      if (isUnique(q, recentTexts, acceptedTexts, 0.75)) {
+        acceptedQuestions.push({ ...q, id: acceptedQuestions.length + 1 });
+        acceptedTexts.push(q.question.trim());
+        console.log(
+          `  ✅ Accepted [${q.topic} / ${q.difficulty}]: ${q.question.slice(0, 70)}...`
+        );
+      } else {
+        console.warn(
+          `  ❌ Duplicate skipped: ${q.question.slice(0, 70)}...`
+        );
+      }
+    }
+
+    console.log(
+      `  📊 Progress after attempt ${attempt}: ${acceptedQuestions.length}/${TARGET}`
+    );
+  }
+
+  // ── Fallback attempt 6 — relaxed threshold ────────────────────────────────
+  if (acceptedQuestions.length < TARGET) {
+    const needed = TARGET - acceptedQuestions.length;
+    console.warn(
+      `⚠️ Only ${acceptedQuestions.length}/${TARGET} after strict attempts. Fallback round for ${needed} more...`
+    );
+
+    const topics             = pickRandomTopics(needed);
+    const topicsWithDifficulty = topics.map((topic) => ({
+      topic,
+      difficulty: pickDifficulty(topic),
+    }));
+
+    try {
+      const rawText         = await callOllama(
+        buildPrompt(date, topicsWithDifficulty, [...recentTexts, ...acceptedTexts]),
+        180000
+      );
+      const fallbackQuestions = parseJSON(rawText);
+
+      if (Array.isArray(fallbackQuestions)) {
+        for (const q of fallbackQuestions) {
+          if (acceptedQuestions.length >= TARGET) break;
+
+          // Relaxed: only block near-exact duplicates (0.95) in fallback round
+          if (isUnique(q, recentTexts, acceptedTexts, 0.95)) {
+            acceptedQuestions.push({ ...q, id: acceptedQuestions.length + 1 });
+            acceptedTexts.push(q.question.trim());
+            console.log(
+              `  🆘 Fallback accepted [${q.topic}]: ${q.question.slice(0, 70)}...`
+            );
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`❌ Fallback round failed: ${err.message}`);
+    }
+  }
+
+  // ── Final guard ───────────────────────────────────────────────────────────
+  if (acceptedQuestions.length === 0) {
+    throw new Error("Could not generate any valid questions after all attempts.");
+  }
+
+  console.log(
+    `🏁 Done! ${acceptedQuestions.length}/${TARGET} questions ready for ${date}`
+  );
+  return acceptedQuestions;
+};
+
+// ─── Controllers ──────────────────────────────────────────────────────────────
 
 export const getTodayQuestions = async (req, res) => {
   try {
@@ -103,43 +356,53 @@ export const getTodayQuestions = async (req, res) => {
 
     if (!dailyQ) {
       let questions;
-      try { questions = await generateDailyQuestions(today); }
-      catch (err) { return res.status(503).json({ message: "AI service error: " + err.message }); }
+      try {
+        questions = await generateDailyQuestions(today);
+      } catch (err) {
+        return res.status(503).json({ message: "AI service error: " + err.message });
+      }
 
       dailyQ = await prisma.dailyQuestion.upsert({
         where:  { date: today },
         update: {},
-        create: { date: today, questions: JSON.stringify(questions) }
+        create: { date: today, questions: JSON.stringify(questions) },
       });
     }
 
     let userStreak = await prisma.userStreak.findUnique({
-      where: { userId_streakDate: { userId, streakDate: today } }
+      where: { userId_streakDate: { userId, streakDate: today } },
     });
 
     if (!userStreak) {
       userStreak = await prisma.userStreak.upsert({
         where:  { userId_streakDate: { userId, streakDate: today } },
         update: {},
-        create: { userId, streakDate: today, dailyQuestionId: dailyQ.id, isCompleted: false }
+        create: {
+          userId,
+          streakDate:      today,
+          dailyQuestionId: dailyQ.id,
+          isCompleted:     false,
+        },
       });
     }
 
     const streakInfo = await getStreakInfo(userId);
 
     return res.json({
-      success: true, date: today, isCompleted: userStreak.isCompleted,
-      questions: JSON.parse(dailyQ.questions).map(q => {
+      success:     true,
+      date:        today,
+      isCompleted: userStreak.isCompleted,
+      questions:   JSON.parse(dailyQ.questions).map((q) => {
         if (!userStreak.isCompleted) {
+          // Hide answer & correctAnswer until user submits
           const { answer, correctAnswer, ...safeQ } = q;
           return safeQ;
         }
         return q;
       }),
-      streak: streakInfo,
-      userAnswers: userStreak.answers ? JSON.parse(userStreak.answers) : []
+      streak:      streakInfo,
+      userAnswers: userStreak.answers ? JSON.parse(userStreak.answers) : [],
     });
-
   } catch (error) {
     console.error("GET TODAY ERROR:", error);
     return res.status(500).json({ message: "Server error" });
@@ -148,18 +411,21 @@ export const getTodayQuestions = async (req, res) => {
 
 export const submitDailyAnswers = async (req, res) => {
   try {
-    const userId  = req.user.id;
-    const today   = getTodayDate();
+    const userId      = req.user.id;
+    const today       = getTodayDate();
     const { answers } = req.body;
 
     if (!answers || !Array.isArray(answers) || answers.length === 0)
       return res.status(400).json({ message: "answers array is required" });
 
     const dailyQ = await prisma.dailyQuestion.findUnique({ where: { date: today } });
-    if (!dailyQ) return res.status(404).json({ message: "Today's questions not found. Call /today first." });
+    if (!dailyQ)
+      return res
+        .status(404)
+        .json({ message: "Today's questions not found. Call /today first." });
 
     const existing = await prisma.userStreak.findUnique({
-      where: { userId_streakDate: { userId, streakDate: today } }
+      where: { userId_streakDate: { userId, streakDate: today } },
     });
 
     if (existing?.isCompleted)
@@ -168,14 +434,26 @@ export const submitDailyAnswers = async (req, res) => {
     await prisma.userStreak.upsert({
       where:  { userId_streakDate: { userId, streakDate: today } },
       update: { answers: JSON.stringify(answers), isCompleted: true, completedAt: new Date() },
-      create: { userId, streakDate: today, dailyQuestionId: dailyQ.id, answers: JSON.stringify(answers), isCompleted: true, completedAt: new Date() }
+      create: {
+        userId,
+        streakDate:      today,
+        dailyQuestionId: dailyQ.id,
+        answers:         JSON.stringify(answers),
+        isCompleted:     true,
+        completedAt:     new Date(),
+      },
     });
 
     const streakInfo = await getStreakInfo(userId);
-    const gifts = await checkAndAwardGifts(userId, streakInfo.currentStreak);
+    const gifts      = await checkAndAwardGifts(userId, streakInfo.currentStreak);
 
-    return res.json({ success: true, message: "Daily questions completed! 🎉", streak: streakInfo, gifts, questions: JSON.parse(dailyQ.questions) });
-
+    return res.json({
+      success:   true,
+      message:   "Daily questions completed! 🎉",
+      streak:    streakInfo,
+      gifts,
+      questions: JSON.parse(dailyQ.questions),
+    });
   } catch (error) {
     console.error("SUBMIT DAILY ERROR:", error);
     return res.status(500).json({ message: "Server error" });
@@ -184,26 +462,32 @@ export const submitDailyAnswers = async (req, res) => {
 
 export const getStreakDashboard = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId     = req.user.id;
     const streakInfo = await getStreakInfo(userId);
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const recentActivity = await prisma.userStreak.findMany({
-      where: { userId, createdAt: { gte: thirtyDaysAgo } },
-      orderBy: { streakDate: 'desc' },
-      take: 30
+      where:   { userId, createdAt: { gte: thirtyDaysAgo } },
+      orderBy: { streakDate: "desc" },
+      take:    30,
     });
 
-    const gifts = await prisma.gift.findMany({ where: { userId }, orderBy: { claimedAt: 'desc' } });
+    const gifts = await prisma.gift.findMany({
+      where:   { userId },
+      orderBy: { claimedAt: "desc" },
+    });
 
     return res.json({
-      success: true, streak: streakInfo,
-      recentActivity: recentActivity.map(a => ({ date: a.streakDate, isCompleted: a.isCompleted })),
-      gifts
+      success:        true,
+      streak:         streakInfo,
+      recentActivity: recentActivity.map((a) => ({
+        date:        a.streakDate,
+        isCompleted: a.isCompleted,
+      })),
+      gifts,
     });
-
   } catch (error) {
     console.error("STREAK DASHBOARD ERROR:", error);
     return res.status(500).json({ message: "Server error" });
@@ -212,22 +496,24 @@ export const getStreakDashboard = async (req, res) => {
 
 export const getDayQuestions = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId   = req.user.id;
     const { date } = req.params;
 
     const dailyQ = await prisma.dailyQuestion.findUnique({ where: { date } });
-    if (!dailyQ) return res.status(404).json({ message: "No questions found for this date" });
+    if (!dailyQ)
+      return res.status(404).json({ message: "No questions found for this date" });
 
     const userStreak = await prisma.userStreak.findUnique({
-      where: { userId_streakDate: { userId, streakDate: date } }
+      where: { userId_streakDate: { userId, streakDate: date } },
     });
 
     return res.json({
-      success: true, date, isCompleted: userStreak?.isCompleted || false,
-      questions: JSON.parse(dailyQ.questions),
-      userAnswers: userStreak?.answers ? JSON.parse(userStreak.answers) : []
+      success:     true,
+      date,
+      isCompleted: userStreak?.isCompleted || false,
+      questions:   JSON.parse(dailyQ.questions),
+      userAnswers: userStreak?.answers ? JSON.parse(userStreak.answers) : [],
     });
-
   } catch (error) {
     console.error("GET DAY QUESTIONS ERROR:", error);
     return res.status(500).json({ message: "Server error" });
@@ -236,55 +522,109 @@ export const getDayQuestions = async (req, res) => {
 
 export const sendReminders = async (req, res) => {
   try {
-    const today = getTodayDate();
-    const allUsers = await prisma.user.findMany({ where: { isVerified: true }, select: { id: true, email: true, name: true } });
-    const completedUserIds = await prisma.userStreak.findMany({ where: { streakDate: today, isCompleted: true }, select: { userId: true } });
-    const completedIds = new Set(completedUserIds.map(u => u.userId));
-
-    let reminderCount = 0;
-    for (const user of allUsers) {
-      if (completedIds.has(user.id)) continue;
-      try {
-        await sendReminderEmail(user.email, user.name);
-        reminderCount++;
-        await prisma.userStreak.upsert({
-          where:  { userId_streakDate: { userId: user.id, streakDate: today } },
-          update: { reminderSent: true },
-          create: { userId: user.id, streakDate: today, reminderSent: true, isCompleted: false }
-        });
-      } catch (err) {
-        console.error(`Reminder failed for ${user.email}:`, err.message);
-      }
-    }
-
-    return res.json({ success: true, remindersSent: reminderCount });
+    const { count } = await sendReminderToAllPending();
+    return res.json({ success: true, remindersSent: count });
   } catch (error) {
     console.error("SEND REMINDERS ERROR:", error);
     return res.status(500).json({ message: "Server error" });
   }
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Shared Reminder Logic ────────────────────────────────────────────────────
+
+const sendReminderToAllPending = async () => {
+  const today = getTodayDate();
+
+  const allUsers = await prisma.user.findMany({
+    where:  { isVerified: true },
+    select: { id: true, email: true, name: true },
+  });
+
+  const completedUserIds = await prisma.userStreak.findMany({
+    where:  { streakDate: today, isCompleted: true },
+    select: { userId: true },
+  });
+  const completedIds = new Set(completedUserIds.map((u) => u.userId));
+
+  let reminderCount = 0;
+
+  for (const user of allUsers) {
+    if (completedIds.has(user.id)) continue;
+
+    try {
+      await sendReminderEmail(user.email, user.name);
+      reminderCount++;
+
+      await prisma.userStreak.upsert({
+        where:  { userId_streakDate: { userId: user.id, streakDate: today } },
+        update: { reminderSent: true },
+        create: {
+          userId:       user.id,
+          streakDate:   today,
+          reminderSent: true,
+          isCompleted:  false,
+        },
+      });
+    } catch (err) {
+      console.error(`Reminder failed for ${user.email}:`, err.message);
+    }
+  }
+
+  return { count: reminderCount };
+};
+
+// ─── Cron Job — 8:00 PM IST (Delhi time) ─────────────────────────────────────
+
+cron.schedule(
+  "0 20 * * *",
+  async () => {
+    console.log("⏰ [CRON] 8 PM IST — Running daily streak reminder...");
+    try {
+      const { count } = await sendReminderToAllPending();
+      console.log(`✅ [CRON] Reminder emails sent to ${count} user(s).`);
+    } catch (err) {
+      console.error("❌ [CRON] Reminder cron job failed:", err.message);
+    }
+  },
+  {
+    timezone: "Asia/Kolkata", // IST = Delhi / Mumbai / Bangalore
+  }
+);
+
+// ─── Streak Info ──────────────────────────────────────────────────────────────
 
 export const getStreakInfo = async (userId) => {
   const streaks = await prisma.userStreak.findMany({
-    where: { userId, isCompleted: true },
-    orderBy: { streakDate: 'desc' }
+    where:   { userId, isCompleted: true },
+    orderBy: { streakDate: "desc" },
   });
 
   const yearAgo = new Date();
   yearAgo.setDate(yearAgo.getDate() - 365);
-  const completedDates = streaks.filter(s => new Date(s.streakDate) >= yearAgo).map(s => s.streakDate);
 
-  if (streaks.length === 0) return { currentStreak: 0, longestStreak: 0, totalCompleted: 0, lastCompletedDate: null, completedDates: [] };
+  const completedDates = streaks
+    .filter((s) => new Date(s.streakDate) >= yearAgo)
+    .map((s) => s.streakDate);
+
+  if (streaks.length === 0)
+    return {
+      currentStreak:     0,
+      longestStreak:     0,
+      totalCompleted:    0,
+      lastCompletedDate: null,
+      completedDates:    [],
+    };
 
   let currentStreak = 0;
-  const today = getTodayDate();
-  const yesterday = new Date();
+  const today       = getTodayDate();
+  const yesterday   = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().split('T')[0];
+  const yesterdayStr = yesterday.toISOString().split("T")[0];
 
-  let checkDate = streaks[0].streakDate === today || streaks[0].streakDate === yesterdayStr ? streaks[0].streakDate : null;
+  let checkDate =
+    streaks[0].streakDate === today || streaks[0].streakDate === yesterdayStr
+      ? streaks[0].streakDate
+      : null;
 
   if (checkDate) {
     for (const streak of streaks) {
@@ -292,53 +632,95 @@ export const getStreakInfo = async (userId) => {
         currentStreak++;
         const prev = new Date(checkDate);
         prev.setDate(prev.getDate() - 1);
-        checkDate = prev.toISOString().split('T')[0];
-      } else break;
+        checkDate = prev.toISOString().split("T")[0];
+      } else {
+        break;
+      }
     }
   }
 
-  let longestStreak = 0, tempStreak = 1;
+  let longestStreak = 0;
+  let tempStreak    = 1;
   for (let i = 1; i < streaks.length; i++) {
-    const curr = new Date(streaks[i-1].streakDate);
+    const curr = new Date(streaks[i - 1].streakDate);
     const prev = new Date(streaks[i].streakDate);
     const diff = (curr - prev) / (1000 * 60 * 60 * 24);
-    if (diff === 1) { tempStreak++; longestStreak = Math.max(longestStreak, tempStreak); }
-    else tempStreak = 1;
+    if (diff === 1) {
+      tempStreak++;
+      longestStreak = Math.max(longestStreak, tempStreak);
+    } else {
+      tempStreak = 1;
+    }
   }
   longestStreak = Math.max(longestStreak, currentStreak);
 
-  return { currentStreak, longestStreak, totalCompleted: streaks.length, lastCompletedDate: streaks[0]?.streakDate || null, completedDates };
+  return {
+    currentStreak,
+    longestStreak,
+    totalCompleted:    streaks.length,
+    lastCompletedDate: streaks[0]?.streakDate || null,
+    completedDates,
+  };
 };
+
+// ─── Gift Awards ──────────────────────────────────────────────────────────────
 
 const checkAndAwardGifts = async (userId, currentStreak) => {
   const awarded = [];
+
   const checkMilestones = async (type, milestones) => {
     for (const [days, message] of Object.entries(milestones)) {
       if (currentStreak === parseInt(days)) {
-        const existing = await prisma.gift.findFirst({ where: { userId, type, milestone: parseInt(days) } });
+        const existing = await prisma.gift.findFirst({
+          where: { userId, type, milestone: parseInt(days) },
+        });
         if (!existing) {
-          const gift = await prisma.gift.create({ data: { userId, type, milestone: parseInt(days), message } });
+          const gift = await prisma.gift.create({
+            data: { userId, type, milestone: parseInt(days), message },
+          });
           awarded.push(gift);
         }
       }
     }
   };
-  await checkMilestones('weekly', GIFT_MESSAGES.weekly);
-  await checkMilestones('monthly', GIFT_MESSAGES.monthly);
-  await checkMilestones('yearly', GIFT_MESSAGES.yearly);
+
+  await checkMilestones("weekly",  GIFT_MESSAGES.weekly);
+  await checkMilestones("monthly", GIFT_MESSAGES.monthly);
+  await checkMilestones("yearly",  GIFT_MESSAGES.yearly);
+
   return awarded;
 };
+
+// ─── Reminder Email Template ──────────────────────────────────────────────────
 
 const sendReminderEmail = async (email, name) => {
   const subject = "⏰ Don't break your streak! Daily questions await";
   const html = `
-    <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;">
-      <h2 style="color: #0ea5e9;">Hey ${name}! 🔥</h2>
-      <p>You have <strong>4 hours left</strong> to complete today's 5 daily questions and maintain your streak!</p>
-      <a href="${process.env.FRONTEND_URL || 'https://place-mentor-iota.vercel.app'}/streak"
-         style="background: #0ea5e9; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; display: inline-block; margin-top: 16px;">
+    <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; background: #f9fafb; border-radius: 12px;">
+      <h2 style="color: #0ea5e9; margin-bottom: 8px;">Hey ${name}! 🔥</h2>
+      <p style="color: #374151; font-size: 15px; line-height: 1.6;">
+        You still haven't completed today's <strong>5 daily questions</strong>.<br/>
+        Don't let your streak die tonight — you've worked too hard for this!
+      </p>
+      <a
+        href="${process.env.FRONTEND_URL || "https://place-mentor-iota.vercel.app"}/streak"
+        style="
+          display: inline-block;
+          margin-top: 16px;
+          background: #0ea5e9;
+          color: white;
+          padding: 12px 28px;
+          border-radius: 8px;
+          text-decoration: none;
+          font-weight: bold;
+          font-size: 15px;
+        "
+      >
         Complete Today's Questions →
       </a>
+      <p style="margin-top: 24px; color: #9ca3af; font-size: 13px;">
+        Consistency is what separates good from great. Keep going 💪
+      </p>
     </div>
   `;
   await sendOTP(email, null, subject, html);
