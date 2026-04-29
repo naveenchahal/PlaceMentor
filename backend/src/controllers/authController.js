@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 
 import generateOTP from "../services/otpService.js";
-import sendOTP from "../services/emailService.js";
+import sendOTP, { isValidEmail } from "../services/emailService.js"; // ✅ isValidEmail import
 
 const OTP_TTL_MS = 5 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
@@ -18,6 +18,11 @@ export const register = async (req, res) => {
 
     if (!name || !normalizedEmail || !password) {
       return res.status(400).json({ message: "All fields required" });
+    }
+
+    // ✅ Email format validate karo
+    if (!isValidEmail(normalizedEmail)) {
+      return res.status(400).json({ message: "Please enter a valid email address" });
     }
 
     const existingUser = await prisma.user.findUnique({
@@ -79,8 +84,8 @@ export const verifyOTP = async (req, res) => {
 
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
-    if (!user)                      return res.status(400).json({ message: "User not found" });
-    if (user.otpExpire < new Date()) return res.status(400).json({ message: "OTP expired" });
+    if (!user)                           return res.status(400).json({ message: "User not found" });
+    if (user.otpExpire < new Date())     return res.status(400).json({ message: "OTP expired" });
     if (user.otp !== String(otp).trim()) return res.status(400).json({ message: "Invalid OTP" });
 
     await prisma.user.update({
@@ -104,6 +109,11 @@ export const resendOTP = async (req, res) => {
     const normalizedEmail = email?.toLowerCase().trim();
 
     if (!normalizedEmail) return res.status(400).json({ message: "Email required" });
+
+    // ✅ Email format validate karo
+    if (!isValidEmail(normalizedEmail)) {
+      return res.status(400).json({ message: "Please enter a valid email address" });
+    }
 
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
@@ -134,7 +144,7 @@ export const resendOTP = async (req, res) => {
 };
 
 
-// ✅ LOGIN — ek email = ek active session
+// ✅ LOGIN
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -146,14 +156,13 @@ export const login = async (req, res) => {
 
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
-    if (!user)             return res.status(404).json({ message: "User not found" });
-    if (!user.isVerified)  return res.status(400).json({ message: "Please verify your email first" });
-    if (!user.password)    return res.status(400).json({ message: "Use Google login" });
+    if (!user)            return res.status(404).json({ message: "User not found" });
+    if (!user.isVerified) return res.status(400).json({ message: "Please verify your email first" });
+    if (!user.password)   return res.status(400).json({ message: "Use Google login" });
 
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(400).json({ message: "Invalid password" });
 
-    // Naya sessionToken generate karo — purani device automatically logout ho jaayegi
     const sessionToken = crypto.randomBytes(32).toString("hex");
 
     await prisma.user.update({
@@ -161,7 +170,6 @@ export const login = async (req, res) => {
       data: { sessionToken }
     });
 
-    // sessionToken JWT mein bhi daalo — middleware verify karega
     const token = jwt.sign(
       { id: user.id, role: user.role, sessionToken },
       process.env.JWT_SECRET,
@@ -185,6 +193,11 @@ export const forgotPassword = async (req, res) => {
     const normalizedEmail = email?.toLowerCase().trim();
 
     if (!normalizedEmail) return res.status(400).json({ message: "Email required" });
+
+    // ✅ Email format validate karo
+    if (!isValidEmail(normalizedEmail)) {
+      return res.status(400).json({ message: "Please enter a valid email address" });
+    }
 
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
@@ -236,9 +249,9 @@ export const resetPassword = async (req, res) => {
 
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
-    if (!user)                return res.status(400).json({ message: "User not found" });
-    if (!user.otp || !user.otpExpire) return res.status(400).json({ message: "No OTP requested. Please use forgot password first." });
-    if (user.otpExpire < new Date())  return res.status(400).json({ message: "OTP expired. Please request a new one." });
+    if (!user)                           return res.status(400).json({ message: "User not found" });
+    if (!user.otp || !user.otpExpire)    return res.status(400).json({ message: "No OTP requested. Please use forgot password first." });
+    if (user.otpExpire < new Date())     return res.status(400).json({ message: "OTP expired. Please request a new one." });
     if (user.otp !== String(otp).trim()) return res.status(400).json({ message: "Invalid OTP" });
 
     const hashed = await bcrypt.hash(newPassword, 10);

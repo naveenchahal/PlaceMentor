@@ -8,6 +8,18 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+// ✅ Email format validator
+export const isValidEmail = (email) => {
+  const formatOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+  if (!formatOk) return false;
+
+  const domain = email.split('@')[1].toLowerCase();
+  const blockedDomains = ['mailinator.com', 'guerrillamail.com', 'tempmail.com', 'throwaway.email'];
+  if (blockedDomains.includes(domain)) return false;
+
+  return true;
+};
+
 const sendOTP = async (email, otp) => {
   await transporter.sendMail({
     from: `"PlaceMentor" <${process.env.EMAIL_USER}>`,
