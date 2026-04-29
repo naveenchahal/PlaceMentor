@@ -1,18 +1,30 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { authAPI } from '../services/api'
 
 export default function Settings() {
   const { user, login, token } = useAuth()
-  const [name, setName]           = useState(user?.name || '')
-  const [loading, setLoading]     = useState(false)
-  const [success, setSuccess]     = useState('')
-  const [error, setError]         = useState('')
-  const [darkMode, setDarkMode]   = useState(
+  const [name, setName]         = useState(user?.name || '')
+  const [loading, setLoading]   = useState(false)
+  const [success, setSuccess]   = useState('')
+  const [error, setError]       = useState('')
+  const [darkMode, setDarkMode] = useState(
     localStorage.getItem('theme') !== 'light'
   )
 
   const avatar = user?.name?.charAt(0).toUpperCase() || '?'
+
+  // ✅ Page load pe saved theme apply karo
+  useEffect(() => {
+    const saved = localStorage.getItem('theme')
+    if (saved === 'light') {
+      document.documentElement.classList.add('light')
+      setDarkMode(false)
+    } else {
+      document.documentElement.classList.remove('light')
+      setDarkMode(true)
+    }
+  }, [])
 
   const handleNameUpdate = async (e) => {
     e.preventDefault()
@@ -30,11 +42,17 @@ export default function Settings() {
     }
   }
 
+  // ✅ Toggle fix
   const handleThemeToggle = () => {
     const newMode = !darkMode
     setDarkMode(newMode)
-    localStorage.setItem('theme', newMode ? 'dark' : 'light')
-    document.documentElement.classList.toggle('light', !newMode)
+    if (newMode) {
+      document.documentElement.classList.remove('light')
+      localStorage.setItem('theme', 'dark')
+    } else {
+      document.documentElement.classList.add('light')
+      localStorage.setItem('theme', 'light')
+    }
   }
 
   return (
@@ -93,11 +111,16 @@ export default function Settings() {
             </p>
             <p className="text-slate-400 text-xs mt-0.5">Switch between dark and light theme</p>
           </div>
+          {/* ✅ Toggle button */}
           <button
             onClick={handleThemeToggle}
-            className={`relative w-12 h-6 rounded-full transition-colors ${darkMode ? 'bg-brand-500' : 'bg-dark-500'}`}
+            className={`relative w-12 h-6 rounded-full transition-colors duration-300
+              ${darkMode ? 'bg-brand-500' : 'bg-slate-300'}`}
           >
-            <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${darkMode ? 'translate-x-7' : 'translate-x-1'}`} />
+            <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow
+                              transition-transform duration-300
+                              ${darkMode ? 'translate-x-7' : 'translate-x-1'}`}
+            />
           </button>
         </div>
       </div>

@@ -1,12 +1,13 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{js,jsx,ts,tsx}"],
+  darkMode: 'class', // ✅ class based dark mode
   theme: {
     extend: {
       fontFamily: {
         heading: ["'Syne'", "sans-serif"],
-        body: ["'DM Sans'", "sans-serif"],
-        mono: ["'JetBrains Mono'", "monospace"]
+        body:    ["'DM Sans'", "sans-serif"],
+        mono:    ["'JetBrains Mono'", "monospace"]
       },
       colors: {
         brand: {
