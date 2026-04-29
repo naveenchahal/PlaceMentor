@@ -10,10 +10,10 @@ const transporter = nodemailer.createTransport({
 });
 
 export const isValidEmail = (email) => {
-  const regex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-  if (!regex.test(email)) return { valid: false, reason: "Invalid email format" };
-  return { valid: true };
-};
+  const regex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+  if (!regex.test(email)) return { valid: false, reason: "Invalid email format" }
+  return { valid: true }
+}
 
 const sendOTP = async (email, otp) => {
   await transporter.sendMail({
