@@ -7,23 +7,21 @@ dotenv.config();
 
 // 🔥 Create transporter (better than "service: gmail")
 const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false, // TLS
+  service: "gmail",
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS, // App Password
+    pass: process.env.EMAIL_PASS,
   },
 });
 
-// 🔍 Verify transporter (runs once on start)
+// ✅ Server start hote hi test email bhejo
 transporter.verify((error, success) => {
   if (error) {
-    console.error("❌ Email server error:", error);
+    console.error("SMTP VERIFY ERROR:", error.message, error.code)
   } else {
-    console.log("✅ Email server is ready to send messages");
+    console.log("SMTP ready ✅")
   }
-});
+})
 
 // ✅ Email validation
 export const isValidEmail = (email) => {
