@@ -1,8 +1,12 @@
+// src/services/emailService.js
 import nodemailer from "nodemailer";
 import axios from "axios";
 
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false,
+  family: 4,              // ✅ IPv4 force
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
@@ -10,11 +14,9 @@ const transporter = nodemailer.createTransport({
 });
 
 export const isValidEmail = async (email) => {
-  // 1. Basic format check — instant
   const formatOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
   if (!formatOk) return { valid: false, reason: "Invalid email format" };
 
-  // 2. Abstract API se real check — 3 sec timeout
   try {
     const response = await axios.get(
       "https://emailvalidation.abstractapi.com/v1/",
@@ -23,18 +25,16 @@ export const isValidEmail = async (email) => {
           api_key: process.env.ABSTRACT_API_KEY,
           email,
         },
-        timeout: 3000, // 3 sec se zyada nahi rukega
+        timeout: 5000,
       }
     );
 
     const data = response.data;
 
-    // Deliverable nahi hai
     if (data.deliverability === "UNDELIVERABLE") {
       return { valid: false, reason: "This email address does not exist" };
     }
 
-    // Disposable/temporary email
     if (data.is_disposable_email?.value === true) {
       return { valid: false, reason: "Disposable emails are not allowed" };
     }
@@ -42,7 +42,6 @@ export const isValidEmail = async (email) => {
     return { valid: true };
 
   } catch (err) {
-    // Timeout ya API down — allow karo, OTP bhejne pe fail hoga
     console.warn("Email validation API error:", err.message);
     return { valid: true };
   }
