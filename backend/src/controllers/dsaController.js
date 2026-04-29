@@ -10,9 +10,17 @@ const VALID_LANGUAGES = [
   'javascript', 'typescript', 'go', 'rust', 'kotlin', 'swift',
 ];
 
+const PLATFORM_URLS = {
+  leetcode:   'https://leetcode.com/problems/',
+  gfg:        'https://www.geeksforgeeks.org/problems/',
+  codeforces: 'https://codeforces.com/problemset/',
+  hackerrank: 'https://www.hackerrank.com/challenges/',
+  atcoder:    'https://atcoder.jp/tasks/',
+};
+
 // ─── Prompt Builder ───────────────────────────────────────────────────────────
 
-function buildPrompt(platform, questionNumber, solveLevel, language) {
+function buildPrompt(platform, questionName, solveLevel, language) {
   const platformNames = {
     leetcode:   'LeetCode',
     gfg:        'GeeksForGeeks',
@@ -21,12 +29,25 @@ function buildPrompt(platform, questionNumber, solveLevel, language) {
     atcoder:    'AtCoder',
   };
   const pName = platformNames[platform] || platform;
+  const platformUrl = PLATFORM_URLS[platform] || '';
+
+  // ── Strict grounding instruction (har prompt ke upar lagega) ──────────────
+  const groundingRule = `CRITICAL RULES — follow strictly, no exceptions:
+1. You must only answer if you have CONFIDENT, SPECIFIC knowledge of the problem named "${questionName}" on ${pName}.
+2. If you are not sure this exact problem exists on ${pName}, respond with EXACTLY:
+   "I am not able to find the problem "${questionName}" on ${pName}. Please verify the problem name and check ${platformUrl}"
+3. If the problem exists but is behind a paywall / premium / locked, respond with EXACTLY:
+   "The problem "${questionName}" on ${pName} is not publicly available (premium/locked). Please check ${platformUrl}"
+4. DO NOT guess, paraphrase, rename, or invent a similar problem. DO NOT say "I'll assume you mean...".
+5. DO NOT generate any solution, hints, or explanation unless you are 100% certain of the exact problem.
+
+`;
 
   if (solveLevel === 'explain') {
-    return `You are an expert competitive programmer and DSA teacher.
-The user is asking about Problem #${questionNumber} from ${pName}.
+    return `${groundingRule}You are an expert competitive programmer and DSA teacher.
+The user is asking about the problem "${questionName}" from ${pName}.
 
-Provide a DETAILED EXPLANATION with this exact structure:
+If and only if you know this problem with certainty, provide a DETAILED EXPLANATION with this exact structure:
 
 1. Problem Statement - Restate what the problem asks clearly.
 2. Understanding Inputs and Outputs - Break down constraints, input/output format, edge cases.
@@ -40,9 +61,9 @@ Be exhaustive. Teach every concept from scratch.`;
   }
 
   if (solveLevel === 'hints') {
-    return `You are an expert DSA mentor helping someone solve Problem #${questionNumber} from ${pName} in ${language}.
+    return `${groundingRule}You are an expert DSA mentor helping someone solve the problem "${questionName}" from ${pName} in ${language}.
 
-Give PROGRESSIVE HINTS from gentle to almost-answer. Never give the full solution code.
+If and only if you know this problem with certainty, give PROGRESSIVE HINTS from gentle to almost-answer. Never give the full solution code.
 
 Hint 1 - Gentle Nudge: Just point in the right conceptual direction.
 Hint 2 - Approach Hint: Suggest the algorithm or data structure category.
@@ -53,10 +74,10 @@ Concepts to Review: 2-3 DSA topics to study if still stuck.
 Similar Problems: 2-3 related problems that use the same pattern.`;
   }
 
-  return `You are an expert competitive programmer.
-The user wants a full solution for Problem #${questionNumber} from ${pName} in ${language}.
+  return `${groundingRule}You are an expert competitive programmer.
+The user wants a full solution for the problem "${questionName}" from ${pName} in ${language}.
 
-Provide a COMPLETE SOLUTION with this structure:
+If and only if you know this problem with certainty, provide a COMPLETE SOLUTION with this structure:
 
 1. Problem Recap - One-line restatement.
 2. Algorithm Choice - Which algorithm and why it is optimal.
@@ -70,16 +91,15 @@ Provide a COMPLETE SOLUTION with this structure:
 
 // ─── Input Validator ─────────────────────────────────────────────────────────
 
-function validateInput(platform, questionNumber, solveLevel, language) {
+function validateInput(platform, questionName, solveLevel, language) {
   const errors = [];
 
   // ── 1. Missing fields ──────────────────────────────────────────────────────
-  if (!platform)      errors.push('platform is required');
-  if (!questionNumber) errors.push('questionNumber is required');
-  if (!solveLevel)    errors.push('solveLevel is required');
-  if (!language)      errors.push('language is required');
+  if (!platform)     errors.push('platform is required');
+  if (!questionName) errors.push('questionName is required');
+  if (!solveLevel)   errors.push('solveLevel is required');
+  if (!language)     errors.push('language is required');
 
-  // Agar kuch bhi missing hai toh aage validate karna bekaar hai
   if (errors.length) return errors;
 
   // ── 2. Platform valid hai? ─────────────────────────────────────────────────
@@ -87,10 +107,17 @@ function validateInput(platform, questionNumber, solveLevel, language) {
     errors.push(`Invalid platform "${platform}". Allowed: ${VALID_PLATFORMS.join(', ')}`);
   }
 
-  // ── 3. Question number valid hai? ─────────────────────────────────────────
-  const qNum = Number(questionNumber);
-  if (!Number.isInteger(qNum) || qNum <= 0 || qNum > 9999) {
-    errors.push(`questionNumber must be a positive integer between 1 and 9999, got "${questionNumber}"`);
+  // ── 3. questionName valid hai? ────────────────────────────────────────────
+  const trimmed = questionName.trim();
+  if (trimmed.length < 2) {
+    errors.push('questionName is too short — provide the full problem name');
+  }
+  if (trimmed.length > 200) {
+    errors.push('questionName is too long — max 200 characters');
+  }
+  // sirf special chars wala garbage input reject karo
+  if (/^[^a-zA-Z0-9]+$/.test(trimmed)) {
+    errors.push(`questionName "${questionName}" looks invalid — must contain letters or digits`);
   }
 
   // ── 4. solveLevel valid hai? ───────────────────────────────────────────────
@@ -103,22 +130,16 @@ function validateInput(platform, questionNumber, solveLevel, language) {
     errors.push(`Invalid language "${language}". Allowed: ${VALID_LANGUAGES.join(', ')}`);
   }
 
-  // ── 6. Vague / garbage input detection ────────────────────────────────────
-  // Question number jo sirf random letters ya symbols ho
-  if (/[^0-9]/.test(String(questionNumber).trim())) {
-    errors.push(`questionNumber "${questionNumber}" looks invalid — only digits allowed`);
-  }
-
   return errors;
 }
 
 // ─── Controller ───────────────────────────────────────────────────────────────
 
 export const solveDSA = async (req, res) => {
-  const { platform, questionNumber, solveLevel, language } = req.body;
+  const { platform, questionName, solveLevel, language } = req.body;
 
   // ── Validate all inputs ────────────────────────────────────────────────────
-  const validationErrors = validateInput(platform, questionNumber, solveLevel, language);
+  const validationErrors = validateInput(platform, questionName, solveLevel, language);
   if (validationErrors.length) {
     return res.status(400).json({
       error: 'Validation failed',
@@ -126,27 +147,21 @@ export const solveDSA = async (req, res) => {
     });
   }
 
-  // Normalize karo — lowercase mein rakho consistency ke liye
-  const normalizedPlatform  = platform.toLowerCase();
-  const normalizedLevel     = solveLevel.toLowerCase();
-  const normalizedLanguage  = language.toLowerCase();
-  const qNum                = Number(questionNumber);
+  const normalizedPlatform = platform.toLowerCase();
+  const normalizedLevel    = solveLevel.toLowerCase();
+  const normalizedLanguage = language.toLowerCase();
+  const cleanName          = questionName.trim();
 
-  const prompt = buildPrompt(normalizedPlatform, qNum, normalizedLevel, normalizedLanguage);
+  const prompt = buildPrompt(normalizedPlatform, cleanName, normalizedLevel, normalizedLanguage);
 
-  // ── SSE headers ──────────────────────────────────────────────────────────
+  // ── SSE headers ───────────────────────────────────────────────────────────
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  // CORS ke liye zaroori hai agar frontend alag port par hai
   res.setHeader('Access-Control-Allow-Origin', '*');
-  // Flush headers immediately so client knows stream has started
   res.flushHeaders();
 
-  // ── Client disconnect handle karo ────────────────────────────────────────
   req.on('close', () => {
-    // Client ne connection tod diya — koi action nahi chahiye,
-    // Groq stream apne aap garbage collected ho jaayega
     console.log('Client disconnected from SSE stream');
   });
 
@@ -156,10 +171,8 @@ export const solveDSA = async (req, res) => {
     console.error('DSA Controller error:', err.message);
 
     if (!res.headersSent) {
-      // Headers abhi nahi gaye — normal JSON error bhej sakte hain
       res.status(500).json({ error: err.message });
     } else {
-      // SSE stream already shuru ho gayi — error event ki tarah bhejo
       res.write(`data: ${JSON.stringify({ error: err.message })}\n\n`);
       res.end();
     }

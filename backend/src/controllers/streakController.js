@@ -693,7 +693,7 @@ const checkAndAwardGifts = async (userId, currentStreak) => {
 
 // ─── Reminder Email Template ──────────────────────────────────────────────────
 
-const sendReminderEmail = async (email, name) => {
+const sendReminderEmail = async (email, name) => {   
   const subject = "⏰ Don't break your streak! Daily questions await";
   const html = `
     <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; background: #f9fafb; border-radius: 12px;">
