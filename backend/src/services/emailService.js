@@ -4,9 +4,13 @@ dotenv.config();
 
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
-  port: 2525,
+  port: 587,
   secure: false,
+  requireTLS:true,
+
   family: 4,  // ✅ IPv4 force
+  logger:true,
+  debug:true,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
