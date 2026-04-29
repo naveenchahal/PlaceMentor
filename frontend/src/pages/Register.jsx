@@ -1,36 +1,51 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { authAPI } from '../services/api'
 
-// ✅ Frontend email format check
+// ✅ Email validation
 const isValidEmail = (email) => {
   const regex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
   return regex.test(email)
 }
 
 export default function Register() {
-  const [form, setForm]       = useState({ name: '', email: '', password: '' })
-  const [error, setError]     = useState('')
+  const [form, setForm] = useState({ name: '', email: '', password: '' })
+  const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [otpSent, setOtpSent] = useState(false)  // ✅ OTP form toggle
-  const [otp, setOtp]         = useState('')
+  const [otpSent, setOtpSent] = useState(false)
+  const [otp, setOtp] = useState('')
   const [verifying, setVerifying] = useState(false)
+  const [cooldown, setCooldown] = useState(0)
+
   const navigate = useNavigate()
 
-  // ✅ Step 1 — Register karo, OTP form turant kholo
+  // ⏳ Cooldown timer
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const timer = setInterval(() => {
+      setCooldown(prev => prev - 1)
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [cooldown])
+
+  // ✅ Register
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
 
-    // Frontend validation
     if (!form.name.trim()) return setError('Name is required')
-    if (!isValidEmail(form.email)) return setError('Please enter a valid email address')
+    if (!isValidEmail(form.email)) return setError('Enter a valid email')
     if (form.password.length < 8) return setError('Password must be at least 8 characters')
 
     setLoading(true)
     try {
       await authAPI.register(form)
-      setOtpSent(true)  // ✅ Turant OTP form dikha do
+
+      setOtpSent(true)
+      setCooldown(60)
+
+      alert('OTP sent successfully! Check inbox or spam folder.')
+
     } catch (err) {
       setError(err.response?.data?.message || 'Registration failed')
     } finally {
@@ -38,12 +53,14 @@ export default function Register() {
     }
   }
 
-  // ✅ Step 2 — OTP verify karo
+  // ✅ Verify OTP
   const handleVerify = async (e) => {
     e.preventDefault()
     setError('')
 
-    if (!otp.trim() || otp.length < 4) return setError('Please enter a valid OTP')
+    if (!otp.trim() || otp.length < 4) {
+      return setError('Enter valid OTP')
+    }
 
     setVerifying(true)
     try {
@@ -56,12 +73,14 @@ export default function Register() {
     }
   }
 
-  // ✅ Resend OTP
+  // 🔁 Resend OTP
   const handleResend = async () => {
+    if (cooldown > 0) return
+
     setError('')
     try {
       await authAPI.resendOTP({ email: form.email })
-      setError('') // clear any error
+      setCooldown(60)
       alert('OTP resent successfully!')
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to resend OTP')
@@ -74,124 +93,67 @@ export default function Register() {
         <div className="card">
 
           {!otpSent ? (
-            // ── Step 1: Register Form ──────────────────────────────────
             <>
               <h2 className="font-heading text-2xl font-bold text-white mb-1">Create account</h2>
               <p className="text-slate-400 text-sm mb-6">Start your placement journey</p>
 
-              {error && (
-                <div className="bg-red-900/30 border border-red-500/40 text-red-400 text-sm px-4 py-3 rounded-xl mb-4">
-                  {error}
-                </div>
-              )}
+              {error && <div className="error-box">{error}</div>}
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                <input
-                  className="input"
-                  type="text"
-                  placeholder="Full Name"
+                <input className="input" type="text" placeholder="Full Name"
                   value={form.name}
-                  onChange={e => setForm({...form, name: e.target.value})}
-                  required
-                />
-                <input
-                  className="input"
-                  type="email"
-                  placeholder="Email"
-                  value={form.email}
-                  onChange={e => setForm({...form, email: e.target.value})}
-                  required
-                />
-                <input
-                  className="input"
-                  type="password"
-                  placeholder="Password (min 8 chars)"
-                  value={form.password}
-                  onChange={e => setForm({...form, password: e.target.value})}
-                  required
-                  minLength={8}
+                  onChange={e => setForm({ ...form, name: e.target.value })}
                 />
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="btn-primary w-full"
-                >
-                  {loading
-                    ? <span className="flex items-center justify-center gap-2">
-                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Sending OTP...
-                      </span>
-                    : 'Create Account'
-                  }
+                <input className="input" type="email" placeholder="Email"
+                  value={form.email}
+                  onChange={e => setForm({ ...form, email: e.target.value })}
+                />
+
+                <input className="input" type="password" placeholder="Password"
+                  value={form.password}
+                  onChange={e => setForm({ ...form, password: e.target.value })}
+                />
+
+                <button className="btn-primary w-full" disabled={loading}>
+                  {loading ? "Sending OTP..." : "Create Account"}
                 </button>
               </form>
 
-              <p className="text-slate-400 text-sm text-center mt-4">
-                Already have an account?{' '}
-                <Link to="/login" className="text-brand-400 hover:underline">Login</Link>
+              <p className="text-sm mt-4 text-center">
+                Already have an account? <Link to="/login">Login</Link>
               </p>
             </>
           ) : (
-            // ── Step 2: OTP Form — turant dikhe ───────────────────────
             <>
-              <div className="text-center mb-6">
-                <div className="text-4xl mb-3">📧</div>
-                <h2 className="font-heading text-2xl font-bold text-white mb-1">Verify your email</h2>
-                <p className="text-slate-400 text-sm">
-                  OTP bheja ja raha hai{' '}
-                  <span className="text-brand-400 font-medium">{form.email}</span>{' '}
-                  pe — thodi der mein aayega
-                </p>
-              </div>
+              <h2 className="text-xl font-bold text-white mb-2">Verify Email</h2>
+              <p className="text-sm text-gray-400 mb-4">
+                OTP sent to <b>{form.email}</b><br />
+                It may take a few seconds. Check spam folder also.
+              </p>
 
-              {error && (
-                <div className="bg-red-900/30 border border-red-500/40 text-red-400 text-sm px-4 py-3 rounded-xl mb-4">
-                  {error}
-                </div>
-              )}
+              {error && <div className="error-box">{error}</div>}
 
-              <form onSubmit={handleVerify} className="space-y-4">
+              <form onSubmit={handleVerify}>
                 <input
-                  className="input text-center text-2xl font-mono tracking-widest"
-                  type="text"
-                  placeholder="Enter OTP"
+                  className="input text-center"
                   value={otp}
-                  onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  maxLength={6}
-                  required
-                  autoFocus
+                  onChange={e => setOtp(e.target.value)}
+                  placeholder="Enter OTP"
                 />
 
-                <button
-                  type="submit"
-                  disabled={verifying}
-                  className="btn-primary w-full"
-                >
-                  {verifying
-                    ? <span className="flex items-center justify-center gap-2">
-                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Verifying...
-                      </span>
-                    : 'Verify OTP'
-                  }
+                <button className="btn-primary w-full mt-3" disabled={verifying}>
+                  {verifying ? "Verifying..." : "Verify OTP"}
                 </button>
               </form>
 
-              <div className="flex items-center justify-between mt-4">
-                <button
-                  onClick={handleResend}
-                  className="text-sm text-brand-400 hover:underline"
-                >
-                  Resend OTP
-                </button>
-                <button
-                  onClick={() => { setOtpSent(false); setError(''); setOtp('') }}
-                  className="text-sm text-slate-400 hover:text-white"
-                >
-                  ← Change email
-                </button>
-              </div>
+              <button
+                onClick={handleResend}
+                disabled={cooldown > 0}
+                className="mt-3 text-sm text-blue-400"
+              >
+                {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend OTP"}
+              </button>
             </>
           )}
 
