@@ -1,10 +1,11 @@
+// src/controllers/authController.js
 import prisma from "../config/prisma.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 
 import generateOTP from "../services/otpService.js";
-import sendOTP, { isValidEmail } from "../services/emailService.js"; // ✅ isValidEmail import
+import sendOTP, { isValidEmail } from "../services/emailService.js";
 
 const OTP_TTL_MS = 5 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
@@ -20,9 +21,10 @@ export const register = async (req, res) => {
       return res.status(400).json({ message: "All fields required" });
     }
 
-    // ✅ Email format validate karo
-    if (!isValidEmail(normalizedEmail)) {
-      return res.status(400).json({ message: "Please enter a valid email address" });
+    // ✅ Real email check
+    const emailCheck = await isValidEmail(normalizedEmail);
+    if (!emailCheck.valid) {
+      return res.status(400).json({ message: emailCheck.reason || "Please enter a valid email address" });
     }
 
     const existingUser = await prisma.user.findUnique({
@@ -110,9 +112,10 @@ export const resendOTP = async (req, res) => {
 
     if (!normalizedEmail) return res.status(400).json({ message: "Email required" });
 
-    // ✅ Email format validate karo
-    if (!isValidEmail(normalizedEmail)) {
-      return res.status(400).json({ message: "Please enter a valid email address" });
+    // ✅ Real email check
+    const emailCheck = await isValidEmail(normalizedEmail);
+    if (!emailCheck.valid) {
+      return res.status(400).json({ message: emailCheck.reason || "Please enter a valid email address" });
     }
 
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
@@ -194,9 +197,10 @@ export const forgotPassword = async (req, res) => {
 
     if (!normalizedEmail) return res.status(400).json({ message: "Email required" });
 
-    // ✅ Email format validate karo
-    if (!isValidEmail(normalizedEmail)) {
-      return res.status(400).json({ message: "Please enter a valid email address" });
+    // ✅ Real email check
+    const emailCheck = await isValidEmail(normalizedEmail);
+    if (!emailCheck.valid) {
+      return res.status(400).json({ message: emailCheck.reason || "Please enter a valid email address" });
     }
 
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
@@ -263,7 +267,7 @@ export const resetPassword = async (req, res) => {
         otp: null,
         otpExpire: null,
         otpSentAt: null,
-        sessionToken: null  // password reset = sabhi devices logout
+        sessionToken: null
       }
     });
 
