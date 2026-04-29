@@ -1,6 +1,8 @@
 import express from "express";
 import passport from "passport";
 import jwt from "jsonwebtoken";
+import { updateName } from '../controllers/authController.js'
+
 
 
 import { register, verifyOTP, resendOTP, login, forgotPassword, resetPassword } from "../controllers/authController.js";
@@ -12,7 +14,7 @@ router.post("/register",register);
 router.post("/verify-otp",verifyOTP);
 
 router.post("/login",login);
-
+router.put('/update-name', protect, updateName)
 router.post("/resend-otp", resendOTP);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password", resetPassword);

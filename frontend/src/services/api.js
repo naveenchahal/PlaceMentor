@@ -29,6 +29,7 @@ export const authAPI = {
   login:          (data) => api.post('/auth/login', data),
   forgotPassword: (data) => api.post('/auth/forgot-password', data),
   resetPassword:  (data) => api.post('/auth/reset-password', data),
+  updateName:     (data) => api.put('/auth/update-name', data),  // ✅ sahi jagah
 }
 
 export const questionAPI = {
@@ -51,15 +52,12 @@ export const interviewAPI = {
 }
 
 export const streakAPI = {
-  getToday:    () => api.get('/streak/today'),
-  submit:      (data) => api.post('/streak/submit', data),
-  getInfo:     () => api.get('/streak/info'),
-  getHistory:  (date) => api.get(`/streak/history/${date}`),
+  getToday:   ()     => api.get('/streak/today'),
+  submit:     (data) => api.post('/streak/submit', data),
+  getInfo:    ()     => api.get('/streak/info'),
+  getHistory: (date) => api.get(`/streak/history/${date}`),
 }
 
-// ✅ FIX 3: plain axios → api instance use karo
-// Pehle plain axios tha jisme auth token nahi jaata tha
-// → backend 401 deta tha → session crash → black screen
 export const voiceInterviewAPI = {
   start:   (data) => api.post('/voice-interview/start',  data),
   next:    (data) => api.post('/voice-interview/next',   data),

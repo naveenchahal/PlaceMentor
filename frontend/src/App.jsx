@@ -20,6 +20,9 @@ import Streak from './pages/Streak'
 import DSASolver from './pages/DSASolver'
 import VoiceInterview from './pages/VoiceInterview'
 import VoiceInterviewSession from './pages/VoiceInterviewSession'
+import Settings from './pages/Settings'
+
+
 
 const PrivateRoute = ({ children }) => {
   const { isLoggedIn, loading } = useAuth()
@@ -47,7 +50,7 @@ export default function App() {
 
             <Route path="/dashboard" element={<PrivateRoute><UserDashboard /></PrivateRoute>} />
             <Route path="/admin" element={<PrivateRoute><AdminDashboard /></PrivateRoute>} />
-
+          <Route path="/settings" element={<PrivateRoute><Settings /></PrivateRoute>} />
             <Route path="/company" element={<PrivateRoute><CompanyPrep /></PrivateRoute>} />
             <Route path="/questions" element={<PrivateRoute><Questions /></PrivateRoute>} />
             <Route path="/resume" element={<PrivateRoute><ResumeAnalyzer /></PrivateRoute>} />

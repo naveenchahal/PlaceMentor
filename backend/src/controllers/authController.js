@@ -157,6 +157,24 @@ export const resendOTP = async (req, res) => {
 };
 
 
+// ✅ UPDATE NAME
+export const updateName = async (req, res) => {
+  try {
+    const { name } = req.body
+    if (!name?.trim()) return res.status(400).json({ message: "Name required" })
+
+    const updated = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { name: name.trim() }
+    })
+
+    const { password: _pw, otp: _o, otpExpire: _e, otpSentAt: _s, sessionToken: _st, ...safeUser } = updated
+    return res.json(safeUser)
+  } catch (error) {
+    console.error("UPDATE NAME ERROR:", error)
+    return res.status(500).json({ message: "Server error" })
+  }
+}
 // ✅ LOGIN
 export const login = async (req, res) => {
   try {
