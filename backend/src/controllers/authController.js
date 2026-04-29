@@ -10,6 +10,15 @@ import sendOTP, { isValidEmail } from "../services/emailService.js";
 const OTP_TTL_MS = 5 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
 
+const logEmailError = (err) => {
+  console.error("Email error FULL:", {
+    message: err.message,
+    code: err.code,
+    command: err.command,
+    response: err.response,
+    responseCode: err.responseCode,
+  });
+};
 
 // ✅ REGISTER
 export const register = async (req, res) => {
@@ -44,11 +53,8 @@ export const register = async (req, res) => {
           }
         });
 
-        // ✅ Pehle response — phir email background mein
         res.json({ message: "OTP sent" });
-        sendOTP(normalizedEmail, otp).catch(err =>
-          console.error("Email error:", err.message)
-        );
+        sendOTP(normalizedEmail, otp).catch(logEmailError);
         return;
       }
       return res.status(400).json({ message: "User already exists" });
@@ -68,11 +74,8 @@ export const register = async (req, res) => {
       }
     });
 
-    // ✅ Pehle response — phir email background mein
     res.status(201).json({ message: "OTP sent" });
-    sendOTP(normalizedEmail, otp).catch(err =>
-      console.error("Email error:", err.message)
-    );
+    sendOTP(normalizedEmail, otp).catch(logEmailError);
     return;
 
   } catch (error) {
@@ -145,9 +148,7 @@ export const resendOTP = async (req, res) => {
     });
 
     res.json({ message: "OTP resent successfully" });
-    sendOTP(normalizedEmail, otp).catch(err =>
-      console.error("Email error:", err.message)
-    );
+    sendOTP(normalizedEmail, otp).catch(logEmailError);
     return;
 
   } catch (error) {
@@ -175,6 +176,8 @@ export const updateName = async (req, res) => {
     return res.status(500).json({ message: "Server error" })
   }
 }
+
+
 // ✅ LOGIN
 export const login = async (req, res) => {
   try {
@@ -255,9 +258,7 @@ export const forgotPassword = async (req, res) => {
     });
 
     res.json({ message: "If this email exists, an OTP has been sent" });
-    sendOTP(normalizedEmail, otp).catch(err =>
-      console.error("Email error:", err.message)
-    );
+    sendOTP(normalizedEmail, otp).catch(logEmailError);
     return;
 
   } catch (error) {
