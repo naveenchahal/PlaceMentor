@@ -1,4 +1,3 @@
-// src/services/emailService.js
 import nodemailer from "nodemailer";
 import { validate } from "deep-email-validator";
 
@@ -10,37 +9,45 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// ✅ Real email existence check — DNS + MX records verify karta hai
 export const isValidEmail = async (email) => {
-  // Basic format check pehle
+  // 1. Basic format check
   const formatOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
   if (!formatOk) return { valid: false, reason: "Invalid email format" };
 
-  // Blocked disposable domains
+  // 2. Blocked disposable domains
   const domain = email.split('@')[1].toLowerCase();
   const blockedDomains = ['mailinator.com', 'guerrillamail.com', 'tempmail.com', 'throwaway.email'];
   if (blockedDomains.includes(domain)) return { valid: false, reason: "Disposable emails not allowed" };
 
-  // DNS + MX record check
+  // 3. DNS + MX check with strict timeout
   try {
-    const result = await validate({
-      email,
-      sender: email,
-      validateRegex: true,
-      validateMx: true,
-      validateTypo: false,
-      validateDisposable: true,
-      validateSMTP: false,
-    });
+    const result = await Promise.race([
+      validate({
+        email,
+        sender: email,
+        validateRegex: true,
+        validateMx: true,
+        validateTypo: false,
+        validateDisposable: true,
+        validateSMTP: false,
+      }),
+      // ✅ 5 second timeout — agar DNS slow hai toh fail karo, allow mat karo
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Email validation timeout")), 5000)
+      )
+    ]);
 
     if (!result.valid) {
-      return { valid: false, reason: "Email domain does not exist" };
+      const reason = result.validators?.mx?.reason || result.validators?.disposable?.reason;
+      return { valid: false, reason: reason || "Email domain does not exist" };
     }
 
     return { valid: true };
-  } catch {
-    // Network error pe fail mat karo — allow kardo
-    return { valid: true };
+
+  } catch (err) {
+    // ✅ Ab network error/timeout pe BLOCK karo — allow mat karo
+    console.warn("Email validation failed:", err.message);
+    return { valid: false, reason: "Could not verify email. Please enter a valid email address." };
   }
 };
 
