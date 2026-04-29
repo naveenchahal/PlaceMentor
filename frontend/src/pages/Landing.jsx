@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 
 const features = [
   { icon: '🎯', title: 'GitHub Questions',    desc: 'Paste your GitHub repo — AI generates technical questions about your own project.' },
@@ -8,6 +9,11 @@ const features = [
 ]
 
 export default function Landing() {
+  const { isLoggedIn, user } = useAuth()
+
+  // ✅ Logged in user ke liye dashboard link
+  const dashboardLink = user?.role === 'ADMIN' ? '/admin' : '/dashboard'
+
   return (
     <main className="max-w-6xl mx-auto px-4">
       {/* Hero */}
@@ -22,9 +28,19 @@ export default function Landing() {
         <p className="text-slate-400 text-lg max-w-xl mx-auto mb-10">
           Practice with AI-generated questions from your own projects, analyze your resume, and take timed mock interviews — all in one place.
         </p>
+
+        {/* ✅ Logged in hai toh dashboard buttons, nahi toh register/login */}
         <div className="flex gap-4 justify-center flex-wrap">
-          <Link to="/register" className="btn-primary text-base px-8 py-3">Start for Free</Link>
-          <Link to="/login"    className="btn-outline text-base px-8 py-3">Login</Link>
+          {isLoggedIn ? (
+            <Link to={dashboardLink} className="btn-primary text-base px-8 py-3">
+              Go to Dashboard →
+            </Link>
+          ) : (
+            <>
+              <Link to="/register" className="btn-primary text-base px-8 py-3">Start for Free</Link>
+              <Link to="/login"    className="btn-outline text-base px-8 py-3">Login</Link>
+            </>
+          )}
         </div>
       </section>
 
