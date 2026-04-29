@@ -19,29 +19,11 @@ dotenv.config();
 
 const app = express();
 
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "https://place-mentor-iota.vercel.app",
-  process.env.FRONTEND_URL, // ✅ env se
-];
-
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-
-      const isAllowed =
-        allowedOrigins.includes(origin) ||
-        /^https:\/\/place-mentor.*\.vercel\.app$/.test(origin) ||
-        /^https:\/\/placementor.*\.vercel\.app$/.test(origin);
-
-      if (isAllowed) {
-        callback(null, true);
-      } else {
-        console.error(`❌ CORS blocked: ${origin}`);
-        callback(new Error(`CORS policy: Origin ${origin} not allowed`));
-      }
+      // ✅ Sab allow karo — baad mein restrict karna
+      callback(null, true);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
