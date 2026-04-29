@@ -12,6 +12,7 @@
     "build": "npx prisma generate"
   },
   "dependencies": {
+    "@getbrevo/brevo": "^5.0.4",
     "@prisma/client": "^5.22.0",
     "axios": "^1.15.2",
     "bcryptjs": "^3.0.3",
