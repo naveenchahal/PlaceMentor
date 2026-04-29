@@ -1,7 +1,7 @@
 import express from "express";
 import passport from "passport";
 import jwt from "jsonwebtoken";
-import { protect } from "../middleware/authMiddleware.js"; // ✅ protect import
+import  protect  from "../middleware/authMiddleware.js"; // ✅ protect import
 
 import {
   register,
