@@ -10,16 +10,6 @@ import sendOTP, { isValidEmail } from "../services/emailService.js";
 const OTP_TTL_MS = 5 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 60 * 1000;
 
-const logEmailError = (err) => {
-  console.error("Email error FULL:", {
-    message: err.message,
-    code: err.code,
-    command: err.command,
-    response: err.response,
-    responseCode: err.responseCode,
-  });
-};
-
 // ✅ REGISTER
 export const register = async (req, res) => {
   try {
@@ -54,9 +44,9 @@ export const register = async (req, res) => {
           }
         });
 
-        res.json({ message: "OTP sent" });
-        sendOTP(normalizedEmail, otp).catch(logEmailError);
-        return;
+        const result = await sendOTP(normalizedEmail, otp);
+        console.log("sendOTP result:", JSON.stringify(result));
+        return res.json({ message: "OTP sent" });
       }
       return res.status(400).json({ message: "User already exists" });
     }
@@ -74,12 +64,12 @@ export const register = async (req, res) => {
       }
     });
 
-    res.status(201).json({ message: "OTP sent" });
-    sendOTP(normalizedEmail, otp).catch(logEmailError);
-    return;
+    const result = await sendOTP(normalizedEmail, otp);
+    console.log("sendOTP result:", JSON.stringify(result));
+    return res.status(201).json({ message: "OTP sent" });
 
   } catch (error) {
-    console.error("REGISTER ERROR:", error);
+    console.error("REGISTER ERROR:", error.message, error.code);
     return res.status(500).json({ message: "Server error" });
   }
 };
@@ -147,9 +137,9 @@ export const resendOTP = async (req, res) => {
       data: { otp, otpExpire: new Date(Date.now() + OTP_TTL_MS), otpSentAt: new Date() }
     });
 
-    res.json({ message: "OTP resent successfully" });
-    sendOTP(normalizedEmail, otp).catch(logEmailError);
-    return;
+    const result = await sendOTP(normalizedEmail, otp);
+    console.log("sendOTP result:", JSON.stringify(result));
+    return res.json({ message: "OTP resent successfully" });
 
   } catch (error) {
     console.error("RESEND OTP ERROR:", error);
@@ -257,9 +247,9 @@ export const forgotPassword = async (req, res) => {
       data: { otp, otpExpire: new Date(Date.now() + OTP_TTL_MS), otpSentAt: new Date() }
     });
 
-    res.json({ message: "If this email exists, an OTP has been sent" });
-    sendOTP(normalizedEmail, otp).catch(logEmailError);
-    return;
+    const result = await sendOTP(normalizedEmail, otp);
+    console.log("sendOTP result:", JSON.stringify(result));
+    return res.json({ message: "If this email exists, an OTP has been sent" });
 
   } catch (error) {
     console.error("FORGOT PASSWORD ERROR:", error);
