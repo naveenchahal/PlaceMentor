@@ -1,5 +1,5 @@
 import nodemailer from "nodemailer";
-import { validate } from "deep-email-validator";
+import axios from "axios";
 
 const transporter = nodemailer.createTransport({
   service: "gmail",
@@ -10,44 +10,41 @@ const transporter = nodemailer.createTransport({
 });
 
 export const isValidEmail = async (email) => {
-  // 1. Basic format check
+  // 1. Basic format check — instant
   const formatOk = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
   if (!formatOk) return { valid: false, reason: "Invalid email format" };
 
-  // 2. Blocked disposable domains
-  const domain = email.split('@')[1].toLowerCase();
-  const blockedDomains = ['mailinator.com', 'guerrillamail.com', 'tempmail.com', 'throwaway.email'];
-  if (blockedDomains.includes(domain)) return { valid: false, reason: "Disposable emails not allowed" };
-
-  // 3. DNS + MX check with strict timeout
+  // 2. Abstract API se real check — 3 sec timeout
   try {
-    const result = await Promise.race([
-      validate({
-        email,
-        sender: email,
-        validateRegex: true,
-        validateMx: true,
-        validateTypo: false,
-        validateDisposable: true,
-        validateSMTP: false,
-      }),
-      // ✅ 5 second timeout — agar DNS slow hai toh fail karo, allow mat karo
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Email validation timeout")), 5000)
-      )
-    ]);
+    const response = await axios.get(
+      "https://emailvalidation.abstractapi.com/v1/",
+      {
+        params: {
+          api_key: process.env.ABSTRACT_API_KEY,
+          email,
+        },
+        timeout: 3000, // 3 sec se zyada nahi rukega
+      }
+    );
 
-    if (!result.valid) {
-      const reason = result.validators?.mx?.reason || result.validators?.disposable?.reason;
-      return { valid: false, reason: reason || "Email domain does not exist" };
+    const data = response.data;
+
+    // Deliverable nahi hai
+    if (data.deliverability === "UNDELIVERABLE") {
+      return { valid: false, reason: "This email address does not exist" };
+    }
+
+    // Disposable/temporary email
+    if (data.is_disposable_email?.value === true) {
+      return { valid: false, reason: "Disposable emails are not allowed" };
     }
 
     return { valid: true };
 
   } catch (err) {
-    // ✅ Ab network error/timeout pe BLOCK karo — allow mat karo
-    console.warn("Email validation failed:", err.message);
-    return { valid: false, reason: "Could not verify email. Please enter a valid email address." };
+    // Timeout ya API down — allow karo, OTP bhejne pe fail hoga
+    console.warn("Email validation API error:", err.message);
+    return { valid: true };
   }
 };
 
