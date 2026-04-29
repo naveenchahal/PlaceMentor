@@ -1,6 +1,6 @@
 import express from "express";
 import dotenv from "dotenv";
-import cors from "cors";  // ← ADD
+import cors from "cors";
 import passport from "passport";
 
 import "./config/passport.js";
@@ -19,11 +19,11 @@ dotenv.config();
 
 const app = express();
 
-// ← ADD THESE LINES
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
-  "https://place-mentor-iota.vercel.app", // production URL
+  "https://place-mentor-iota.vercel.app",
+  process.env.FRONTEND_URL, // ✅ env se
 ];
 
 app.use(
@@ -31,10 +31,10 @@ app.use(
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
 
-      // Allow karo production URL + saari Vercel preview URLs
       const isAllowed =
         allowedOrigins.includes(origin) ||
-        /^https:\/\/place-mentor.*\.vercel\.app$/.test(origin);
+        /^https:\/\/place-mentor.*\.vercel\.app$/.test(origin) ||
+        /^https:\/\/placementor.*\.vercel\.app$/.test(origin);
 
       if (isAllowed) {
         callback(null, true);
@@ -52,15 +52,16 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(passport.initialize());
-app.use('/api/dsa', dsaRoutes)
-app.use("/api/auth", authRoutes);
-app.use("/api/questions", questionRoutes);
-app.use("/api/resume", resumeRoutes);
-app.use("/api/interview", interviewRoutes);
-app.use("/api/company", companyRoutes);
-app.use("/api/admin", adminRoutes);
-app.use("/api/streak", streakRoutes);
-app.use('/api/voice-interview', voiceInterviewRoutes)
+
+app.use('/api/dsa',            dsaRoutes);
+app.use("/api/auth",           authRoutes);
+app.use("/api/questions",      questionRoutes);
+app.use("/api/resume",         resumeRoutes);
+app.use("/api/interview",      interviewRoutes);
+app.use("/api/company",        companyRoutes);
+app.use("/api/admin",          adminRoutes);
+app.use("/api/streak",         streakRoutes);
+app.use('/api/voice-interview', voiceInterviewRoutes);
 
 app.get("/", (req, res) => {
   res.send("Server is running 🚀");
@@ -68,7 +69,7 @@ app.get("/", (req, res) => {
 
 cron.schedule('0 20 * * *', async () => {
   console.log('Sending streak reminders...')
-  await fetch('http://localhost:5000/api/streak/send-reminders', { method: 'POST' })
+  await fetch(`${process.env.FRONTEND_URL?.replace('vercel.app', 'railway.app') || 'http://localhost:5000'}/api/streak/send-reminders`, { method: 'POST' })
 })
 
 app.listen(5000, () => {
