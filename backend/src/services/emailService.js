@@ -1,41 +1,36 @@
 // src/services/emailService.js
-
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-// 🔥 Create transporter (better than "service: gmail")
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false,
+  family: 4,  // ✅ IPv4 force — Railway/Render pe IPv6 blocked hai
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
 });
 
-// ✅ Server start hote hi test email bhejo
-transporter.verify((error, success) => {
+transporter.verify((error) => {
   if (error) {
-    console.error("SMTP VERIFY ERROR:", error.message, error.code)
+    console.error("SMTP VERIFY ERROR:", error.message, error.code);
   } else {
-    console.log("SMTP ready ✅")
+    console.log("SMTP ready ✅");
   }
-})
+});
 
-// ✅ Email validation
 export const isValidEmail = (email) => {
-  const regex =
-    /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-
+  const regex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
   if (!regex.test(email)) {
     return { valid: false, reason: "Invalid email format" };
   }
-
   return { valid: true };
 };
 
-// 📩 Send OTP function
 const sendOTP = async (email, otp) => {
   try {
     const info = await transporter.sendMail({
@@ -54,17 +49,11 @@ const sendOTP = async (email, otp) => {
         </div>
       `,
     });
-
     console.log("✅ Email sent:", info.response);
     return { success: true };
-
   } catch (err) {
-    console.error("❌ Email send failed:", err.message);
-
-    return {
-      success: false,
-      error: err.message,
-    };
+    console.error("❌ Email send failed:", err.message, err.code);
+    return { success: false, error: err.message };
   }
 };
 
