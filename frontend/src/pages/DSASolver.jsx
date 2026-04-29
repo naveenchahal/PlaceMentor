@@ -11,7 +11,7 @@ const PLATFORMS = [
 const SOLVE_LEVELS = [
   { value: 'explain', label: '📖 Question Explain', desc: 'Full breakdown of problem, concepts & approach' },
   { value: 'hints',   label: '💡 Hints',            desc: 'Progressive hints — no spoilers' },
-  { value: 'solve',   label: '💻 Full Code',         desc: 'Complete solution with walkthrough & complexity' }, // ✅ 'code' → 'solve'
+  { value: 'solve',   label: '💻 Full Code',         desc: 'Complete solution with walkthrough & complexity' },
 ]
 
 const LANGUAGES = [
@@ -22,14 +22,14 @@ const LANGUAGES = [
 ]
 
 export default function DSASolver() {
-  const [platform,       setPlatform]       = useState('')
-  const [questionNumber, setQuestionNumber] = useState('')
-  const [solveLevel,     setSolveLevel]     = useState('')
-  const [language,       setLanguage]       = useState('')
-  const [response,       setResponse]       = useState('')
-  const [loading,        setLoading]        = useState(false)
-  const [error,          setError]          = useState('')
-  const [copied,         setCopied]         = useState(false)
+  const [platform,      setPlatform]      = useState('')
+  const [questionName,  setQuestionName]  = useState('')   // ✅ renamed
+  const [solveLevel,    setSolveLevel]    = useState('')
+  const [language,      setLanguage]      = useState('')
+  const [response,      setResponse]      = useState('')
+  const [loading,       setLoading]       = useState(false)
+  const [error,         setError]         = useState('')
+  const [copied,        setCopied]        = useState(false)
   const responseRef = useRef(null)
 
   useEffect(() => {
@@ -38,7 +38,7 @@ export default function DSASolver() {
     }
   }, [response])
 
-  const isValid = platform && questionNumber.trim() && solveLevel && language
+  const isValid = platform && questionName.trim() && solveLevel && language
 
   const handleSolve = async () => {
     if (!isValid) return
@@ -54,16 +54,14 @@ export default function DSASolver() {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ platform, questionNumber, solveLevel, language }),
+        body: JSON.stringify({ platform, questionName, solveLevel, language }), // ✅ questionName
       })
 
-      // ✅ Fix: error response SSE nahi hoti — pehle text lo, phir parse karo
       if (!res.ok) {
         const text = await res.text()
         let message = 'Server error'
         try {
           const parsed = JSON.parse(text)
-          // Backend validation errors — details array ho sakta hai
           if (parsed.details?.length) {
             message = parsed.details.join(' • ')
           } else {
@@ -75,7 +73,6 @@ export default function DSASolver() {
         throw new Error(message)
       }
 
-      // ✅ SSE stream padhna — reader se
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
@@ -86,7 +83,7 @@ export default function DSASolver() {
 
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
-        buffer = lines.pop() // incomplete line buffer mein rakhlo
+        buffer = lines.pop()
 
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
@@ -97,9 +94,7 @@ export default function DSASolver() {
             const data = JSON.parse(jsonStr)
             if (data.error) throw new Error(data.error)
             if (data.text)  setResponse(prev => prev + data.text)
-            // data.done — kuch nahi karna, loop naturally khatam ho jaayega
           } catch (parseErr) {
-            // Ek bad chunk ke liye poori stream mat todo
             console.warn('Bad SSE chunk skipped:', jsonStr)
           }
         }
@@ -118,7 +113,7 @@ export default function DSASolver() {
   }
 
   const handleReset = () => {
-    setPlatform(''); setQuestionNumber(''); setSolveLevel(''); setLanguage('')
+    setPlatform(''); setQuestionName(''); setSolveLevel(''); setLanguage('')  // ✅
     setResponse(''); setError('')
   }
 
@@ -164,18 +159,20 @@ export default function DSASolver() {
             </select>
           </div>
 
-          {/* Question Number */}
+          {/* Question Name ✅ */}
           <div className="space-y-1.5">
-            <label className="text-slate-300 text-sm font-medium"># Question Number / ID</label>
+            <label className="text-slate-300 text-sm font-medium">📝 Question Name</label>
             <input
               type="text"
-              value={questionNumber}
-              onChange={e => setQuestionNumber(e.target.value)}
-              placeholder="e.g. 1, 42, 1235..."
+              value={questionName}
+              onChange={e => setQuestionName(e.target.value)}
+              placeholder="e.g. Two Sum, Longest Substring..."
               className="w-full bg-dark-700 border border-dark-500 text-white rounded-lg px-3 py-2.5
-                         text-sm placeholder-slate-600 focus:outline-none focus:border-brand-500 transition-colors
-                         font-mono"
+                         text-sm placeholder-slate-600 focus:outline-none focus:border-brand-500 transition-colors"
             />
+            <p className="text-xs text-slate-500 pl-1">
+              Enter the exact problem name as shown on the platform
+            </p>
           </div>
 
           {/* Mode */}
@@ -245,19 +242,19 @@ export default function DSASolver() {
             </button>
           </div>
 
-          {/* Summary preview */}
+          {/* Query Preview ✅ */}
           {isValid && (
             <div className="bg-dark-700/60 border border-dark-500 rounded-lg p-3 space-y-1.5 text-xs">
               <p className="text-slate-500 uppercase tracking-wider font-semibold mb-2">Query Preview</p>
               {[
                 ['Platform', PLATFORMS.find(p => p.value === platform)?.label],
-                ['Question', `#${questionNumber}`],
+                ['Question', questionName],                                      // ✅ no # prefix
                 ['Mode',     SOLVE_LEVELS.find(l => l.value === solveLevel)?.label],
                 ['Language', language],
               ].map(([k, v]) => (
-                <div key={k} className="flex justify-between">
-                  <span className="text-slate-500">{k}</span>
-                  <span className="text-white font-medium">{v}</span>
+                <div key={k} className="flex justify-between gap-2">
+                  <span className="text-slate-500 shrink-0">{k}</span>
+                  <span className="text-white font-medium text-right truncate">{v}</span>
                 </div>
               ))}
             </div>
@@ -279,17 +276,14 @@ export default function DSASolver() {
             )}
           </div>
 
-          <div
-            ref={responseRef}
-            className="flex-1 overflow-y-auto max-h-[65vh] scrollbar-thin"
-          >
+          <div ref={responseRef} className="flex-1 overflow-y-auto max-h-[65vh] scrollbar-thin">
             {/* Empty state */}
             {!response && !loading && !error && (
               <div className="flex flex-col items-center justify-center h-full text-center py-16">
                 <div className="text-5xl mb-4">🤖</div>
                 <h3 className="text-white font-semibold text-lg mb-2">Ready to Help!</h3>
                 <p className="text-slate-500 text-sm max-w-sm mb-6 leading-relaxed">
-                  Select a platform, enter a question number, choose your mode & language — then hit Solve Now.
+                  Select a platform, enter the exact question name, choose your mode & language — then hit Solve Now.
                 </p>
                 <div className="space-y-2 text-left">
                   {SOLVE_LEVELS.map(l => (
