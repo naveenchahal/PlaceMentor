@@ -19,17 +19,12 @@ dotenv.config();
 
 const app = express();
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // ✅ Sab allow karo — baad mein restrict karna
-      callback(null, true);
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+app.use(cors({
+  origin: '*',  
+  credentials: false, 
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}))
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
