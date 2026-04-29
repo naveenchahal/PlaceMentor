@@ -27,10 +27,16 @@ export default function Navbar() {
   const isAdmin = user?.role === 'ADMIN'
   const links = isAdmin ? adminNavLinks : userNavLinks
 
+  // ✅ Logged in → dashboard, nahi → landing
+  const homeLink = isLoggedIn
+    ? (isAdmin ? '/admin' : '/dashboard')
+    : '/'
+
   return (
     <nav className="border-b border-dark-600 bg-dark-800/80 backdrop-blur-md sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-        <Link to="/" className="font-heading text-xl font-bold text-white">
+
+        <Link to={homeLink} className="font-heading text-xl font-bold text-white">
           Place<span className="text-brand-400">Mentor</span>
         </Link>
 
