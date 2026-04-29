@@ -21,10 +21,9 @@ export const register = async (req, res) => {
       return res.status(400).json({ message: "All fields required" });
     }
 
-    // ✅ Real email check
-    const emailCheck = await isValidEmail(normalizedEmail);
+    const emailCheck = isValidEmail(normalizedEmail);
     if (!emailCheck.valid) {
-      return res.status(400).json({ message: emailCheck.reason || "Please enter a valid email address" });
+      return res.status(400).json({ message: emailCheck.reason });
     }
 
     const existingUser = await prisma.user.findUnique({
@@ -44,8 +43,13 @@ export const register = async (req, res) => {
             otpSentAt: new Date()
           }
         });
-        await sendOTP(normalizedEmail, otp);
-        return res.json({ message: "OTP resent" });
+
+        // ✅ Pehle response — phir email background mein
+        res.json({ message: "OTP sent" });
+        sendOTP(normalizedEmail, otp).catch(err =>
+          console.error("Email error:", err.message)
+        );
+        return;
       }
       return res.status(400).json({ message: "User already exists" });
     }
@@ -64,8 +68,12 @@ export const register = async (req, res) => {
       }
     });
 
-    await sendOTP(normalizedEmail, otp);
-    return res.status(201).json({ message: "OTP sent" });
+    // ✅ Pehle response — phir email background mein
+    res.status(201).json({ message: "OTP sent" });
+    sendOTP(normalizedEmail, otp).catch(err =>
+      console.error("Email error:", err.message)
+    );
+    return;
 
   } catch (error) {
     console.error("REGISTER ERROR:", error);
@@ -112,10 +120,9 @@ export const resendOTP = async (req, res) => {
 
     if (!normalizedEmail) return res.status(400).json({ message: "Email required" });
 
-    // ✅ Real email check
-    const emailCheck = await isValidEmail(normalizedEmail);
+    const emailCheck = isValidEmail(normalizedEmail);
     if (!emailCheck.valid) {
-      return res.status(400).json({ message: emailCheck.reason || "Please enter a valid email address" });
+      return res.status(400).json({ message: emailCheck.reason });
     }
 
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
@@ -137,8 +144,11 @@ export const resendOTP = async (req, res) => {
       data: { otp, otpExpire: new Date(Date.now() + OTP_TTL_MS), otpSentAt: new Date() }
     });
 
-    await sendOTP(normalizedEmail, otp);
-    return res.json({ message: "OTP resent successfully" });
+    res.json({ message: "OTP resent successfully" });
+    sendOTP(normalizedEmail, otp).catch(err =>
+      console.error("Email error:", err.message)
+    );
+    return;
 
   } catch (error) {
     console.error("RESEND OTP ERROR:", error);
@@ -197,10 +207,9 @@ export const forgotPassword = async (req, res) => {
 
     if (!normalizedEmail) return res.status(400).json({ message: "Email required" });
 
-    // ✅ Real email check
-    const emailCheck = await isValidEmail(normalizedEmail);
+    const emailCheck = isValidEmail(normalizedEmail);
     if (!emailCheck.valid) {
-      return res.status(400).json({ message: emailCheck.reason || "Please enter a valid email address" });
+      return res.status(400).json({ message: emailCheck.reason });
     }
 
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
@@ -227,8 +236,11 @@ export const forgotPassword = async (req, res) => {
       data: { otp, otpExpire: new Date(Date.now() + OTP_TTL_MS), otpSentAt: new Date() }
     });
 
-    await sendOTP(normalizedEmail, otp);
-    return res.json({ message: "If this email exists, an OTP has been sent" });
+    res.json({ message: "If this email exists, an OTP has been sent" });
+    sendOTP(normalizedEmail, otp).catch(err =>
+      console.error("Email error:", err.message)
+    );
+    return;
 
   } catch (error) {
     console.error("FORGOT PASSWORD ERROR:", error);
