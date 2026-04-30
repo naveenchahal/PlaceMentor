@@ -1,42 +1,41 @@
-import nodemailer from "nodemailer";
-import dotenv from "dotenv";
-dotenv.config();
+import { Resend } from "resend";
 
-const transporter = nodemailer.createTransport({
-  host: "74.125.133.108",
-  port: 587,
-  secure: false,
-  requireTLS:true,
-
-  family: 4,  // ✅ IPv4 force
-  logger:true,
-  debug:true,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
-
-transporter.verify((error) => {
-  if (error) {
-    console.error("SMTP VERIFY ERROR:", error.message, error.code);
-  } else {
-    console.log("SMTP ready ✅");
-  }
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 export const isValidEmail = (email) => {
   const regex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-  if (!regex.test(email)) {
-    return { valid: false, reason: "Invalid email format" };
-  }
+  if (!regex.test(email)) return { valid: false, reason: "Invalid email format" };
   return { valid: true };
 };
 
+// ✅ Generic email — streak reminders ke liye
+export const sendEmail = async (email, subject, html) => {
+  try {
+    const { data, error } = await resend.emails.send({
+      from: "PlaceMentor <noreply@placementor.xyz>",
+      to: email,
+      subject,
+      html,
+    });
+
+    if (error) {
+      console.error("❌ Resend error:", error);
+      return { success: false, error: error.message };
+    }
+
+    console.log("✅ Email sent:", data?.id);
+    return { success: true };
+  } catch (err) {
+    console.error("❌ Email send failed:", err.message);
+    return { success: false, error: err.message };
+  }
+};
+
+// ✅ OTP sender
 const sendOTP = async (email, otp) => {
   try {
-    const info = await transporter.sendMail({
-      from: `"PlaceMentor" <${process.env.EMAIL_USER}>`,
+    const { data, error } = await resend.emails.send({
+      from: "PlaceMentor <noreply@placementor.xyz>",
       to: email,
       subject: "Your OTP - PlaceMentor",
       html: `
@@ -51,10 +50,16 @@ const sendOTP = async (email, otp) => {
         </div>
       `,
     });
-    console.log("✅ Email sent:", info.response);
+
+    if (error) {
+      console.error("❌ Resend error:", error);
+      return { success: false, error: error.message };
+    }
+
+    console.log("✅ Email sent:", data?.id);
     return { success: true };
   } catch (err) {
-    console.error("❌ Email send failed:", err.message, err.code);
+    console.error("❌ Email send failed:", err.message);
     return { success: false, error: err.message };
   }
 };

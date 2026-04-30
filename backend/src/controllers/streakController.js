@@ -1,6 +1,5 @@
-// src/controllers/streakController.js
 import prisma from "../config/prisma.js";
-import sendOTP from "../services/emailService.js";
+import sendOTP, { sendEmail } from "../services/emailService.js"; // ✅ sendEmail bhi import
 import { callOllama } from "../config/groq.js";
 import cron from "node-cron";
 
@@ -33,18 +32,9 @@ const getTodayDate = () => new Date().toISOString().split("T")[0];
 // ─── Topics & Difficulty ──────────────────────────────────────────────────────
 
 const ALL_TOPICS = [
-  "DSA",
-  "System Design",
-  "HR",
-  "OOPs",
-  "Aptitude",
-  "Operating Systems",
-  "DBMS",
-  "Networking",
-  "Node.js",
-  "Express.js",
-  "React",
-  "JavaScript",
+  "DSA", "System Design", "HR", "OOPs", "Aptitude",
+  "Operating Systems", "DBMS", "Networking",
+  "Node.js", "Express.js", "React", "JavaScript",
 ];
 
 const DIFFICULTY_LEVELS = ["easy", "medium", "hard"];
@@ -78,7 +68,7 @@ const GIFT_MESSAGES = {
   },
 };
 
-// ─── Pure JS Dice Coefficient (no external package needed) ───────────────────
+// ─── Pure JS Dice Coefficient ─────────────────────────────────────────────────
 
 const getBigrams = (str) => {
   const bigrams = new Set();
@@ -105,9 +95,6 @@ const diceCoefficient = (a, b) => {
 
 // ─── 90-Day Duplicate Prevention ─────────────────────────────────────────────
 
-/**
- * Fetches all question texts asked in the last 90 days from DB.
- */
 const getRecentQuestionTexts = async () => {
   const ninetyDaysAgo = new Date();
   ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
@@ -133,12 +120,6 @@ const getRecentQuestionTexts = async () => {
   return recentTexts;
 };
 
-/**
- * Returns true if a question is unique (safe to accept).
- * Checks against:
- *   1. Last 90 days questions from DB  (recentTexts)
- *   2. Already accepted questions this session (acceptedTexts)
- */
 const isUnique = (question, recentTexts, acceptedTexts, threshold = 0.75) => {
   if (!question?.question) return false;
   const newText = question.question.trim();
@@ -165,10 +146,7 @@ const buildPrompt = (date, topicsWithDifficulty, avoidTexts) => {
       : "";
 
   const topicInstructions = topicsWithDifficulty
-    .map(
-      (t, i) =>
-        `Question ${i + 1}: Topic="${t.topic}", Difficulty="${t.difficulty}"`
-    )
+    .map((t, i) => `Question ${i + 1}: Topic="${t.topic}", Difficulty="${t.difficulty}"`)
     .join("\n");
 
   return `You are an expert technical interviewer for software engineering placement preparation.
@@ -197,65 +175,31 @@ Return ONLY a raw JSON array. No markdown, no code fences, no explanation. Start
     "type": "text",
     "question": "Explain the difference between BFS and DFS with their time complexities.",
     "answer": "BFS uses a queue, explores level by level, O(V+E) time. DFS uses stack/recursion, explores depth first, O(V+E) time. BFS finds shortest path in unweighted graphs; DFS is used for cycle detection, topological sort."
-  },
-  {
-    "id": 2,
-    "topic": "OOPs",
-    "difficulty": "medium",
-    "type": "mcq",
-    "question": "Which principle ensures a subclass can replace its parent class without breaking the program?",
-    "options": ["A) Open/Closed Principle", "B) Liskov Substitution Principle", "C) Interface Segregation", "D) Dependency Inversion"],
-    "correctAnswer": "B) Liskov Substitution Principle",
-    "answer": "LSP states that objects of a superclass should be replaceable with objects of a subclass without affecting the correctness of the program."
   }
 ]`;
 };
 
 // ─── Core: Greedy Question Generation ────────────────────────────────────────
 
-/**
- * STRATEGY — Greedy Collection across attempts:
- *
- * Instead of discarding ALL 5 questions when any duplicate found,
- * we collect valid unique questions one-by-one across multiple rounds.
- *
- * Attempts 1–5 (strict, threshold 0.75):
- *   - Ask AI for only as many questions as still NEEDED (not always 5)
- *   - Filter each question individually via isUnique()
- *   - Accept unique ones instantly, skip duplicates
- *   - Stop as soon as acceptedQuestions.length === 5
- *
- * Attempt 6 — Fallback (relaxed, threshold 0.95):
- *   - Only runs if still < 5 after all strict attempts
- *   - Blocks only near-exact duplicates
- *   - Fills remaining slots no matter what
- */
 const generateDailyQuestions = async (date) => {
-  const recentTexts = await getRecentQuestionTexts(); // last 90 days from DB
-
-  const acceptedQuestions = []; // final result array
-  const acceptedTexts     = []; // question strings already accepted (intra-session dedup)
-
+  const recentTexts = await getRecentQuestionTexts();
+  const acceptedQuestions = [];
+  const acceptedTexts     = [];
   const TARGET             = 5;
   const MAX_STRICT_ATTEMPTS = 5;
 
-  // ── Strict attempts 1–5 ───────────────────────────────────────────────────
   for (let attempt = 1; attempt <= MAX_STRICT_ATTEMPTS; attempt++) {
     if (acceptedQuestions.length >= TARGET) break;
 
     const needed = TARGET - acceptedQuestions.length;
-    console.log(
-      `🎯 [Attempt ${attempt}] Need ${needed} more unique question${needed > 1 ? "s" : ""}...`
-    );
+    console.log(`🎯 [Attempt ${attempt}] Need ${needed} more unique question${needed > 1 ? "s" : ""}...`);
 
-    // Only request as many questions as still needed — saves tokens & time
-    const topics             = pickRandomTopics(needed);
+    const topics = pickRandomTopics(needed);
     const topicsWithDifficulty = topics.map((topic) => ({
       topic,
       difficulty: pickDifficulty(topic),
     }));
 
-    // Tell AI to avoid both DB history AND already accepted questions this session
     const avoidTexts = [...recentTexts, ...acceptedTexts];
     const prompt     = buildPrompt(date, topicsWithDifficulty, avoidTexts);
 
@@ -273,43 +217,32 @@ const generateDailyQuestions = async (date) => {
       continue;
     }
 
-    // Greedy: check and accept each question individually
     for (const q of questions) {
       if (acceptedQuestions.length >= TARGET) break;
-
       if (isUnique(q, recentTexts, acceptedTexts, 0.75)) {
         acceptedQuestions.push({ ...q, id: acceptedQuestions.length + 1 });
         acceptedTexts.push(q.question.trim());
-        console.log(
-          `  ✅ Accepted [${q.topic} / ${q.difficulty}]: ${q.question.slice(0, 70)}...`
-        );
+        console.log(`  ✅ Accepted [${q.topic} / ${q.difficulty}]: ${q.question.slice(0, 70)}...`);
       } else {
-        console.warn(
-          `  ❌ Duplicate skipped: ${q.question.slice(0, 70)}...`
-        );
+        console.warn(`  ❌ Duplicate skipped: ${q.question.slice(0, 70)}...`);
       }
     }
 
-    console.log(
-      `  📊 Progress after attempt ${attempt}: ${acceptedQuestions.length}/${TARGET}`
-    );
+    console.log(`  📊 Progress after attempt ${attempt}: ${acceptedQuestions.length}/${TARGET}`);
   }
 
-  // ── Fallback attempt 6 — relaxed threshold ────────────────────────────────
   if (acceptedQuestions.length < TARGET) {
     const needed = TARGET - acceptedQuestions.length;
-    console.warn(
-      `⚠️ Only ${acceptedQuestions.length}/${TARGET} after strict attempts. Fallback round for ${needed} more...`
-    );
+    console.warn(`⚠️ Only ${acceptedQuestions.length}/${TARGET} after strict attempts. Fallback round for ${needed} more...`);
 
-    const topics             = pickRandomTopics(needed);
+    const topics = pickRandomTopics(needed);
     const topicsWithDifficulty = topics.map((topic) => ({
       topic,
       difficulty: pickDifficulty(topic),
     }));
 
     try {
-      const rawText         = await callOllama(
+      const rawText = await callOllama(
         buildPrompt(date, topicsWithDifficulty, [...recentTexts, ...acceptedTexts]),
         180000
       );
@@ -318,14 +251,10 @@ const generateDailyQuestions = async (date) => {
       if (Array.isArray(fallbackQuestions)) {
         for (const q of fallbackQuestions) {
           if (acceptedQuestions.length >= TARGET) break;
-
-          // Relaxed: only block near-exact duplicates (0.95) in fallback round
           if (isUnique(q, recentTexts, acceptedTexts, 0.95)) {
             acceptedQuestions.push({ ...q, id: acceptedQuestions.length + 1 });
             acceptedTexts.push(q.question.trim());
-            console.log(
-              `  🆘 Fallback accepted [${q.topic}]: ${q.question.slice(0, 70)}...`
-            );
+            console.log(`  🆘 Fallback accepted [${q.topic}]: ${q.question.slice(0, 70)}...`);
           }
         }
       }
@@ -334,14 +263,11 @@ const generateDailyQuestions = async (date) => {
     }
   }
 
-  // ── Final guard ───────────────────────────────────────────────────────────
   if (acceptedQuestions.length === 0) {
     throw new Error("Could not generate any valid questions after all attempts.");
   }
 
-  console.log(
-    `🏁 Done! ${acceptedQuestions.length}/${TARGET} questions ready for ${date}`
-  );
+  console.log(`🏁 Done! ${acceptedQuestions.length}/${TARGET} questions ready for ${date}`);
   return acceptedQuestions;
 };
 
@@ -394,7 +320,6 @@ export const getTodayQuestions = async (req, res) => {
       isCompleted: userStreak.isCompleted,
       questions:   JSON.parse(dailyQ.questions).map((q) => {
         if (!userStreak.isCompleted) {
-          // Hide answer & correctAnswer until user submits
           const { answer, correctAnswer, ...safeQ } = q;
           return safeQ;
         }
@@ -420,9 +345,7 @@ export const submitDailyAnswers = async (req, res) => {
 
     const dailyQ = await prisma.dailyQuestion.findUnique({ where: { date: today } });
     if (!dailyQ)
-      return res
-        .status(404)
-        .json({ message: "Today's questions not found. Call /today first." });
+      return res.status(404).json({ message: "Today's questions not found. Call /today first." });
 
     const existing = await prisma.userStreak.findUnique({
       where: { userId_streakDate: { userId, streakDate: today } },
@@ -573,7 +496,7 @@ const sendReminderToAllPending = async () => {
   return { count: reminderCount };
 };
 
-// ─── Cron Job — 8:00 PM IST (Delhi time) ─────────────────────────────────────
+// ─── Cron Job — 8:00 PM IST ──────────────────────────────────────────────────
 
 cron.schedule(
   "0 20 * * *",
@@ -586,9 +509,7 @@ cron.schedule(
       console.error("❌ [CRON] Reminder cron job failed:", err.message);
     }
   },
-  {
-    timezone: "Asia/Kolkata", // IST = Delhi / Mumbai / Bangalore
-  }
+  { timezone: "Asia/Kolkata" }
 );
 
 // ─── Streak Info ──────────────────────────────────────────────────────────────
@@ -693,7 +614,7 @@ const checkAndAwardGifts = async (userId, currentStreak) => {
 
 // ─── Reminder Email Template ──────────────────────────────────────────────────
 
-const sendReminderEmail = async (email, name) => {   
+const sendReminderEmail = async (email, name) => {
   const subject = "⏰ Don't break your streak! Daily questions await";
   const html = `
     <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; background: #f9fafb; border-radius: 12px;">
@@ -702,7 +623,7 @@ const sendReminderEmail = async (email, name) => {
         You still haven't completed today's <strong>5 daily questions</strong>.<br/>
         Don't let your streak die tonight — you've worked too hard for this!
       </p>
-      <a
+      
         href="${process.env.FRONTEND_URL || "https://place-mentor-iota.vercel.app"}/streak"
         style="
           display: inline-block;
@@ -723,5 +644,5 @@ const sendReminderEmail = async (email, name) => {
       </p>
     </div>
   `;
-  await sendOTP(email, null, subject, html);
+  await sendEmail(email, subject, html); // ✅ sendEmail use karo
 };
