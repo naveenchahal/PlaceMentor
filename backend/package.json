@@ -30,6 +30,7 @@
     "passport-google-oauth20": "^2.0.0",
     "pdf-parse": "^2.4.5",
     "prisma": "^5.22.0",
+    "resend": "^6.12.2",
     "string-similarity": "^4.0.4"
   },
   "devDependencies": {
