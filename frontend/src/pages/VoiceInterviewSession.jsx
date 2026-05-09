@@ -10,6 +10,7 @@ const speak = (text, onEnd) => {
   utt.rate  = 0.92
   utt.pitch = 1
   utt.volume = 1
+  // Pick a natural voice if available
   const voices = window.speechSynthesis.getVoices()
   const preferred = voices.find(v =>
     v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Daniel')
@@ -128,6 +129,7 @@ function VoiceQuestionCard({ qa, index }) {
 
       {open && (
         <div className="border-t border-white/10 bg-dark-800/60">
+          {/* Voice mini-stats */}
           {qa.voiceFeedback && (
             <div className="px-4 pt-3 pb-2 flex flex-wrap gap-3">
               {qa.voiceFeedback.wpm > 0 && (
@@ -156,6 +158,7 @@ function VoiceQuestionCard({ qa, index }) {
             </div>
           )}
 
+          {/* Tabs */}
           <div className="flex border-b border-white/10 px-4">
             {['analysis', 'answer'].map(t => (
               <button key={t} onClick={() => setTab(t)}
@@ -211,6 +214,7 @@ function VoiceQuestionCard({ qa, index }) {
                 )}
               </div>
             )}
+
             {tab === 'answer' && (
               <div>
                 <p className="text-slate-500 text-xs uppercase mb-2 font-medium">Ideal Spoken Answer</p>
@@ -239,6 +243,8 @@ function VoiceAnalysisView({ analysis, navigate }) {
 
   return (
     <main className="max-w-4xl mx-auto px-4 py-8">
+
+      {/* Hero */}
       <div className="card mb-6">
         <div className="flex flex-col sm:flex-row items-center gap-6 mb-6">
           <ScoreRing score={analysis.overallScore} label="Overall" size={120} />
@@ -259,6 +265,7 @@ function VoiceAnalysisView({ analysis, navigate }) {
           </div>
         </div>
 
+        {/* Voice metrics bar */}
         {analysis.voiceMetrics && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
@@ -284,6 +291,7 @@ function VoiceAnalysisView({ analysis, navigate }) {
         )}
       </div>
 
+      {/* Tabs */}
       <div className="flex gap-1 bg-dark-800 rounded-2xl p-1 mb-6 overflow-x-auto">
         {tabs.map(t => (
           <button key={t.id} onClick={() => setSection(t.id)}
@@ -294,6 +302,7 @@ function VoiceAnalysisView({ analysis, navigate }) {
         ))}
       </div>
 
+      {/* OVERVIEW */}
       {section === 'overview' && (
         <div className="space-y-4">
           {analysis.overallFeedback && (
@@ -302,6 +311,7 @@ function VoiceAnalysisView({ analysis, navigate }) {
               <p className="text-slate-200 leading-relaxed">{analysis.overallFeedback}</p>
             </div>
           )}
+
           <div className="grid md:grid-cols-2 gap-4">
             {analysis.top3CommunicationTips?.length > 0 && (
               <div className="card">
@@ -326,6 +336,7 @@ function VoiceAnalysisView({ analysis, navigate }) {
               </div>
             )}
           </div>
+
           {analysis.topicBreakdown?.length > 0 && (
             <div className="card">
               <h3 className="font-heading font-semibold text-white mb-4">Topic Breakdown</h3>
@@ -343,6 +354,7 @@ function VoiceAnalysisView({ analysis, navigate }) {
               ))}
             </div>
           )}
+
           <div className="grid md:grid-cols-2 gap-4">
             {analysis.strongAreas?.length > 0 && (
               <div className="card">
@@ -364,6 +376,7 @@ function VoiceAnalysisView({ analysis, navigate }) {
         </div>
       )}
 
+      {/* QUESTIONS */}
       {section === 'questions' && (
         <div>
           {analysis.questionAnalysis?.length > 0
@@ -375,13 +388,19 @@ function VoiceAnalysisView({ analysis, navigate }) {
         </div>
       )}
 
+      {/* COMMUNICATION */}
       {section === 'comms' && (
         <div className="space-y-4">
           {analysis.communicationBreakdown && (
             <div className="card">
               <h3 className="font-heading font-semibold text-white mb-5">Communication Skills</h3>
               {Object.entries(analysis.communicationBreakdown).map(([key, val]) => (
-                <SkillBar key={key} label={key.charAt(0).toUpperCase() + key.slice(1)} score={val.score} feedback={val.feedback} />
+                <SkillBar
+                  key={key}
+                  label={key.charAt(0).toUpperCase() + key.slice(1)}
+                  score={val.score}
+                  feedback={val.feedback}
+                />
               ))}
             </div>
           )}
@@ -427,6 +446,7 @@ function VoiceAnalysisView({ analysis, navigate }) {
         </div>
       )}
 
+      {/* STUDY PLAN */}
       {section === 'plan' && (
         <div className="space-y-4">
           {analysis.studyPlan
@@ -476,9 +496,8 @@ export default function VoiceInterviewSession() {
     return Math.max(0, Math.floor((new Date(sessionData.endsAt) - new Date()) / 1000))
   })
 
-  const recognitionRef     = useRef(null)
-  const startTimeRef       = useRef(null)
-  const finalTranscriptRef = useRef('')  // ✅ FIX 1: closure problem solve kiya
+  const recognitionRef = useRef(null)
+  const startTimeRef   = useRef(null)
 
   const formatTime = (s) =>
     `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
@@ -490,64 +509,36 @@ export default function VoiceInterviewSession() {
     return () => clearInterval(t)
   }, [analysis])
 
-  // ✅ FIX 2: Cleanup on unmount - mic aur TTS band karo
-  useEffect(() => {
-    return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.onend   = null
-        recognitionRef.current.onerror = null
-        recognitionRef.current.stop()
-        recognitionRef.current = null
-      }
-      stopSpeaking()
-    }
-  }, [])
-
-  // ✅ FIX 3: Naya question aane pe recognition reset karo
+  // Speak question when it changes
   useEffect(() => {
     if (!current || analysis) return
-
-    // Purana recognition band karo
-    if (recognitionRef.current) {
-      recognitionRef.current.onend   = null
-      recognitionRef.current.onerror = null
-      recognitionRef.current.stop()
-      recognitionRef.current = null
-    }
-
-    // State reset karo
-    setTranscript('')
-    setLiveText('')
-    finalTranscriptRef.current = ''
+    stopSpeaking()
     setPhase('speaking')
     setStatusMsg('Interviewer is asking...')
-
     const intro = current.questionNumber === 1
       ? `Welcome to your voice interview. Let's begin. Question ${current.questionNumber}: ${current.question}`
       : `Question ${current.questionNumber}: ${current.question}`
-
     speak(intro, () => {
       setPhase('idle')
       setStatusMsg('Press the mic button when ready to answer')
     })
-
     return () => stopSpeaking()
-  }, [current?.id]) // ✅ current.id pe depend karo, poore object pe nahi
+  }, [current?.id])
 
-  // ✅ FIX 4: setupRecognition - ref use kiya finalTranscript ke liye
+  // Setup speech recognition
   const setupRecognition = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) return null
 
     const rec = new SpeechRecognition()
-    rec.continuous     = true
-    rec.interimResults = true
-    rec.lang           = 'en-US'
+    rec.continuous      = true
+    rec.interimResults  = true
+    rec.lang            = 'en-US'
 
-    finalTranscriptRef.current = ''
+    let finalTranscript = ''
 
     rec.onstart = () => {
-      finalTranscriptRef.current = ''
+      finalTranscript = ''
       startTimeRef.current = Date.now()
       setPhase('listening')
       setStatusMsg('Listening... speak your answer')
@@ -557,19 +548,18 @@ export default function VoiceInterviewSession() {
       let interim = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
         if (e.results[i].isFinal) {
-          finalTranscriptRef.current += e.results[i][0].transcript + ' '
+          finalTranscript += e.results[i][0].transcript + ' '
         } else {
           interim += e.results[i][0].transcript
         }
       }
-      setLiveText(finalTranscriptRef.current + interim)
+      setLiveText(finalTranscript + interim)
     }
 
     rec.onend = () => {
-      const final = finalTranscriptRef.current.trim()
-      setTranscript(final)
+      setTranscript(finalTranscript.trim())
       setLiveText('')
-      if (final) {
+      if (finalTranscript.trim()) {
         setPhase('idle')
         setStatusMsg('Answer recorded. Review and submit.')
       } else {
@@ -580,49 +570,26 @@ export default function VoiceInterviewSession() {
 
     rec.onerror = (e) => {
       console.error('Speech error:', e.error)
-      // ✅ FIX 5: aborted error ignore karo (manually stop kiya)
-      if (e.error === 'aborted') return
       setPhase('idle')
-      setStatusMsg(
-        e.error === 'not-allowed'
-          ? 'Microphone access denied. Please allow mic access.'
-          : 'Speech error. Try again.'
-      )
+      setStatusMsg(e.error === 'not-allowed'
+        ? 'Microphone access denied. Please allow mic access.'
+        : 'Speech error. Try again.')
     }
 
     return rec
   }, [])
 
-  // ✅ FIX 6: startListening - purana rec pehle band karo
   const startListening = () => {
     stopSpeaking()
-
-    // Purana recognition band karo
-    if (recognitionRef.current) {
-      recognitionRef.current.onend   = null
-      recognitionRef.current.onerror = null
-      recognitionRef.current.stop()
-      recognitionRef.current = null
-    }
-
     const rec = setupRecognition()
     if (!rec) {
-      setStatusMsg('Speech recognition not supported. Use Chrome.')
+      setStatusMsg('Speech recognition not supported in this browser. Use Chrome.')
       return
     }
-
     recognitionRef.current = rec
     setTranscript('')
-    setLiveText('')
-    finalTranscriptRef.current = ''
-
-    try {
-      rec.start()
-    } catch (e) {
-      console.error('Recognition start error:', e)
-      setStatusMsg('Mic error. Try again.')
-      setPhase('idle')
-    }
+    try { rec.start() }
+    catch (e) { console.error(e) }
   }
 
   const stopListening = () => {
@@ -630,16 +597,8 @@ export default function VoiceInterviewSession() {
   }
 
   const retryRecording = () => {
-    // Purana recognition band karo
-    if (recognitionRef.current) {
-      recognitionRef.current.onend   = null
-      recognitionRef.current.onerror = null
-      recognitionRef.current.stop()
-      recognitionRef.current = null
-    }
     setTranscript('')
     setLiveText('')
-    finalTranscriptRef.current = ''
     setStatusMsg('Press mic to re-record your answer')
     setPhase('idle')
   }
@@ -649,7 +608,6 @@ export default function VoiceInterviewSession() {
     setLoading(true)
     setPhase('processing')
     setStatusMsg('Submitting...')
-
     const timeTaken = startTimeRef.current
       ? Math.floor((Date.now() - startTimeRef.current) / 1000)
       : 0
@@ -667,7 +625,6 @@ export default function VoiceInterviewSession() {
         setCurrent(data.currentQuestion)
         setTranscript('')
         setLiveText('')
-        finalTranscriptRef.current = ''
         setPhase('idle')
       }
     } catch (err) {
@@ -678,7 +635,7 @@ export default function VoiceInterviewSession() {
     }
   }
 
-  // ── No session ────────────────────────────────────────────────────────────────
+  // ── No session ───────────────────────────────────────────────────────────────
   if (!sessionData) return (
     <div className="min-h-[80vh] flex items-center justify-center">
       <div className="text-center">
@@ -741,6 +698,7 @@ export default function VoiceInterviewSession() {
 
       {/* Mic zone */}
       <div className="card flex flex-col items-center gap-4 py-8 mb-4">
+        {/* Animated mic button */}
         <button
           onClick={phase === 'listening' ? stopListening : startListening}
           disabled={phase === 'speaking' || phase === 'processing'}
@@ -757,6 +715,7 @@ export default function VoiceInterviewSession() {
           )}
         </button>
 
+        {/* Status message */}
         <p className={`text-sm font-medium ${
           phase === 'listening' ? 'text-red-400'
           : phase === 'speaking' ? 'text-brand-400'
@@ -764,6 +723,7 @@ export default function VoiceInterviewSession() {
           {statusMsg || 'Press mic to start recording'}
         </p>
 
+        {/* Live transcription */}
         {(liveText || transcript) && (
           <div className="w-full bg-dark-700/60 rounded-xl p-3 max-h-32 overflow-y-auto">
             <p className="text-xs text-slate-500 mb-1 uppercase font-medium">
@@ -775,6 +735,7 @@ export default function VoiceInterviewSession() {
           </div>
         )}
 
+        {/* Word count hint */}
         {transcript && (
           <p className="text-slate-600 text-xs">
             {transcript.split(/\s+/).filter(Boolean).length} words spoken
